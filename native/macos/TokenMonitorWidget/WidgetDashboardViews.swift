@@ -674,6 +674,7 @@ enum WidgetVendorIdentity {
             "default": "#6AB4F0"
         ]
         let adaptiveInk = ["grok", "xai", "copilot", "cursor", "opencode", "pi", "zai", "zaiteam", "zcode", "proma", "kimi", "moonshot", "ollama"]
+        let adaptiveInk = ["grok", "xai", "copilot", "cursor", "opencode", "pi", "omp", "zai", "zaiteam", "zcode", "proma", "kimi", "moonshot", "ollama"]
         if adaptiveInk.contains(vendorID.lowercased()) { return Color.white.opacity(0.86) }
         return Color(widgetHex: colors[vendorID.lowercased()] ?? colors["default"]!)
     }

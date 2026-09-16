@@ -75,6 +75,7 @@ const {
   clientsCsvForSetting,
   normalizeClientsCsv
 } = require('../shared/clientTracking');
+const { seedSplitClients } = require('../shared/clientIdentitySplits');
 const {
   clientDiagnosticRoots,
   lookupModelPricing,
@@ -424,6 +425,11 @@ let dashboardWindowNativeBlurEnabled = false;
 let settingsPath = null;
 let settings = null;
 let initialLimitProvidersPending = false;
+// Set by readSettings() when a client identity split was seeded into the tracked
+// CSV. The addition has to reach disk (the seed is persisted, not recomputed), but
+// settings are written through saveSettings() after the window exists, so the flag
+// carries the decision from the read to that first save.
+let seededClientSplitsPending = false;
 let claudeWebCookieMutationRevision = 0;
 let persistedSettingsSnapshot = null;
 let credentialStore = null;
@@ -538,6 +544,7 @@ function defaultSettings() {
     hiddenServiceProviders: '',
     serviceStatusRefreshMs: 60000,
     archivedClientUsage: { version: 1, clients: {} },
+    seededClientSplits: '',
     allTimeSince: process.env.TOKEN_MONITOR_ALL_TIME_SINCE || '2024-01-01',
     customModelPricing: [],
     modelAliases: {},
@@ -2071,6 +2078,14 @@ function ensureSettingsLoaded() {
       settings.codexManagedAccounts = hydratedCodexAccounts;
     }
   }
+  // A seeded client identity split is an in-memory addition at this point.
+  // Persist it with the same retry-on-next-save tolerance as the migration
+  // above, so a read-only or failing settings file delays the write instead of
+  // losing the tracked client.
+  if (seededClientSplitsPending) {
+    seededClientSplitsPending = false;
+    saveSettings();
+  }
   rendererViewState = normalizeInitialRendererViewState(settings.lastViewState, rendererViewState);
   return settings;
 }
@@ -2443,6 +2458,25 @@ function readSettings() {
     if (!saved.secret && defaults.secret) delete saved.secret;
     const merged = { ...defaults, ...saved, ...storedCredentials };
     merged.clients = clientsCsvForSetting(merged.clients);
+    // A client identity split (see clientIdentitySplits.js) is not a new tool:
+    // the user tracking its parent was already counting it, so the split has to
+    // be seeded or their usage drops. `seededClientSplits` makes that a one-time
+    // addition, so untracking the row afterwards is not undone on next launch.
+    //
+    // `saved.clients` is the trigger, not `merged.clients`: the seed is about what
+    // the user actually had tracked, and a fresh install already gets every
+    // default-tracked client from DEFAULT_CLIENTS without needing to be told.
+    if (settingsFileExisted && saved.clients !== undefined) {
+      const seeded = seedSplitClients(merged.clients, { applied: merged.seededClientSplits });
+      if (seeded.seeded.length > 0) {
+        merged.clients = seeded.clients;
+        merged.seededClientSplits = [...new Set([
+          ...String(merged.seededClientSplits || '').split(',').map((value) => value.trim()).filter(Boolean),
+          ...seeded.seeded
+        ])].join(',');
+        seededClientSplitsPending = true;
+      }
+    }
     merged.customScanPaths = normalizeCustomScanPaths(merged.customScanPaths);
     // A missing settings file is the only reliable fresh-install signal: a
     // missing limitProviders field also occurs when an existing installation

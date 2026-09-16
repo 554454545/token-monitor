@@ -25,6 +25,7 @@ const {
   KNOWN_CLIENT_LIST
 } = require('../../src/shared/clientCatalog');
 const { DEFAULT_CLIENTS, KNOWN_CLIENTS, PARSE_LOCAL_CLIENTS } = require('../../src/shared/clientTracking');
+const { CLIENT_IDENTITY_SPLITS, seedSplitClients } = require('../../src/shared/clientIdentitySplits');
 
 const rootDir = path.join(__dirname, '..', '..');
 
@@ -51,7 +52,7 @@ test('derived KNOWN_CLIENTS keeps the established id order', () => {
   assert.equal(KNOWN_CLIENTS, CLIENT_IDS.join(','));
   assert.equal(
     KNOWN_CLIENTS,
-    'claude,codex,opencode,hermes,openclaw,cursor,antigravity,cline,amp,droid,kimi,qwen,grok,copilot,pi,zed,kilo,commandcode,micode,zcode,kiro,codebuddy,workbuddy,proma,qodercn,reasonix,dsh,cherrystudio,lmstudio,unsloth'
+    'claude,codex,opencode,hermes,openclaw,cursor,antigravity,cline,amp,droid,kimi,qwen,grok,copilot,pi,omp,zed,kilo,commandcode,micode,zcode,kiro,codebuddy,workbuddy,proma,qodercn,reasonix,dsh,cherrystudio,lmstudio,unsloth'
   );
 });
 
@@ -59,7 +60,7 @@ test('derived DEFAULT_CLIENTS keeps the existing default-tracked CSV', () => {
   assert.equal(DEFAULT_CLIENTS, DEFAULT_CLIENT_IDS.join(','));
   assert.equal(
     DEFAULT_CLIENTS,
-    'claude,codex,opencode,hermes,openclaw,cursor,antigravity,cline,amp,droid,kimi,qwen,grok,copilot,pi,zed,kilo,commandcode,zcode,kiro,codebuddy,workbuddy,proma,reasonix,dsh,cherrystudio,lmstudio,unsloth'
+    'claude,codex,opencode,hermes,openclaw,cursor,antigravity,cline,amp,droid,kimi,qwen,grok,copilot,pi,omp,zed,kilo,commandcode,zcode,kiro,codebuddy,workbuddy,proma,reasonix,dsh,cherrystudio,lmstudio,unsloth'
   );
 });
 
@@ -103,4 +104,38 @@ test('the widget renderer loads the catalog before app.js', () => {
   assert.ok(catalogTag > -1, 'index.html must load shared/clientCatalog.js');
   assert.ok(appTag > -1, 'index.html must load app.js');
   assert.ok(catalogTag < appTag, 'clientCatalog.js must load before app.js');
+});
+
+// A client identity split (clientIdentitySplits.js) reverses a merge, so the
+// split client is not a new tool for anyone who tracked its parent: those users
+// were already counting it under the merged id. Seeding is therefore what keeps
+// the split from silently dropping usage.
+test('seedSplitClients adds the split client to a user who tracked its parent', () => {
+  const seeded = seedSplitClients('claude,codex,pi');
+  assert.equal(seeded.clients, 'claude,codex,pi,omp');
+  assert.deepEqual(seeded.seeded, ['omp']);
+});
+
+test('seedSplitClients adds nothing for a user who never tracked the parent', () => {
+  assert.deepEqual(seedSplitClients('claude,codex'), { clients: 'claude,codex', seeded: [] });
+});
+
+test('seedSplitClients is a one-time addition, not an enforced re-add', () => {
+  // A user who untracks the split client after the seed must keep it untracked.
+  assert.deepEqual(
+    seedSplitClients('claude,pi', { applied: 'omp' }),
+    { clients: 'claude,pi', seeded: [] }
+  );
+});
+
+test('seedSplitClients leaves an already-tracked split client alone', () => {
+  assert.deepEqual(seedSplitClients('pi,omp'), { clients: 'pi,omp', seeded: [] });
+});
+
+// A fresh install takes every default-tracked client from DEFAULT_CLIENTS, so the
+// split has to be default-tracked for new users to get it at all.
+test('the split client is default-tracked so fresh installs collect it', () => {
+  for (const { split } of CLIENT_IDENTITY_SPLITS) {
+    assert.ok(DEFAULT_CLIENT_IDS.includes(split), `${split} should be tracked on a fresh install`);
+  }
 });

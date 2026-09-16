@@ -491,6 +491,7 @@ enum WidgetFormat {
         case "kimi": "Kimi"
         case "grok": "Grok"
         case "copilot": "GitHub Copilot"
+        case "omp": "Oh My Pi"
         case "zed": "Zed"
         case "commandcode": "Command Code"
         case "mimo": "MiMo"

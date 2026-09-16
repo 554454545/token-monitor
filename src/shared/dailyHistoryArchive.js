@@ -7,6 +7,7 @@ const { sharedDataDir, writeJsonAtomic } = require('./config');
 const {
   normalizeTokscaleClientName, num, sumOutputTokens, sumTokens
 } = require('./history');
+const { CLIENT_IDENTITY_SPLITS } = require('./clientIdentitySplits');
 
 const ARCHIVE_VERSION = 1;
 const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -193,7 +194,35 @@ function graphsArray(graphs) {
   return (Array.isArray(graphs) ? graphs : [graphs]).filter((graph) => graph && typeof graph === 'object');
 }
 
-function observationsFromGraphs(graphs) {
+// A day that was first observed while two clients shared one row keeps that
+// merged identity: the archived row already contains both products' usage, so
+// replaying a post-split scan of the same day as two rows would count the split
+// client twice. Only a day the archive holds in merged form *and* not yet in
+// split form is folded, which keeps the rule self-describing — it is the
+// archive's own contents, not a date the install has to remember, that says
+// which days predate the split. A day the archive has never seen keeps the
+// split the scan reports, because nothing merged exists to be counted again.
+function archiveDayClients(archive, date) {
+  const clients = new Set();
+  for (const observation of Object.values(archive?.days?.[date]?.observations || {})) {
+    if (observation?.client) clients.add(observation.client);
+  }
+  return clients;
+}
+
+function foldClientForDate(client, date, options = {}) {
+  if (!client) return client;
+  const archive = options.archive;
+  for (const { merged, split } of CLIENT_IDENTITY_SPLITS) {
+    if (client !== split) continue;
+    const archived = archiveDayClients(archive, date);
+    if (!archived.has(merged) || archived.has(split)) continue;
+    return merged;
+  }
+  return client;
+}
+
+function observationsFromGraphs(graphs, options = {}) {
   const days = new Map();
   for (const graph of graphsArray(graphs)) {
     for (const row of (Array.isArray(graph.contributions) ? graph.contributions : [])) {
@@ -202,7 +231,7 @@ function observationsFromGraphs(graphs) {
       const day = days.get(date) || { date, activeTimeMs: 0, observations: {} };
       day.activeTimeMs += Math.max(0, Math.round(num(row.activeTimeMs ?? row.active_time_ms)));
       for (const raw of (Array.isArray(row?.clients) ? row.clients : [])) {
-        const client = normalizeTokscaleClientName(raw?.client) || 'unknown';
+        const client = foldClientForDate(normalizeTokscaleClientName(raw?.client), date, options) || 'unknown';
         const candidate = normalizeObservation({
           ...raw,
           client,
@@ -236,7 +265,7 @@ function captureDailyHistoryArchive(existingArchive, graphs, options = {}) {
   const archive = normalizeDailyHistoryArchive(existingArchive);
   const todayKey = String(options.todayKey || '').slice(0, 10);
   const hasTodayKey = DAY_KEY_RE.test(todayKey);
-  const incomingDays = observationsFromGraphs(graphs);
+  const incomingDays = observationsFromGraphs(graphs, { archive });
 
   for (const [date, incoming] of incomingDays) {
     if (hasTodayKey && date > todayKey) continue;
@@ -473,8 +502,8 @@ function graphTimeMetrics(graphs, activeTimeMs) {
 }
 
 function graphFromDailyHistoryArchive(graphs, archive, options = {}) {
-  const currentDays = observationsFromGraphs(graphs);
   const normalizedArchive = normalizeDailyHistoryArchive(archive);
+  const currentDays = observationsFromGraphs(graphs, { archive: normalizedArchive });
   const todayKey = String(options.todayKey || '').slice(0, 10);
   const hasTodayKey = DAY_KEY_RE.test(todayKey);
 
