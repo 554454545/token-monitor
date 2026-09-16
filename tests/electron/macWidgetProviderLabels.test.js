@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { LIMIT_PROVIDER_IDS, LIMIT_PROVIDER_LABELS } = require('../../src/shared/limitProviders');
 const { buildMacWidgetSnapshot } = require('../../src/shared/macWidgetSnapshot');
+const { CLIENT_IDS, CLIENT_LABELS } = require('../../src/shared/clientCatalog');
 
 const rootDir = path.join(__dirname, '..', '..');
 const read = (...parts) => fs.readFileSync(path.join(rootDir, ...parts), 'utf8');
@@ -70,4 +71,87 @@ test('the Widget fallback map agrees with the snapshot labels', () => {
   for (const id of LIMIT_PROVIDER_IDS) {
     assert.equal(fallback.get(id), LIMIT_PROVIDER_LABELS[id], `WidgetFormat.provider("${id}")`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Tracked tools, not just limits providers.
+//
+// A tracked-tool row is a different surface from a limits row and is not covered
+// by the provider assertions above. AGENTS.md requires an explicit case in
+// WidgetFormat.provider there, kept complete rather than leaning on the default,
+// because that fallback is value.capitalized: it renders "Codebuddy", "Qodercn"
+// and "Dsh" instead of the catalog's "CodeBuddy", "Qoder CN" and "DeepSeek"
+// "Harness". The widget draws tool rows through WidgetFormat.provider($0.id)
+// with no displayName to prefer, so the fallback is the shipped label.
+//
+// The colour table has the same shape of hole and the same failure mode: an id
+// in neither `colors` nor `adaptiveInk` quietly takes the shared default blue,
+// which reads as a real vendor colour rather than as a missing entry.
+function labelCasesForTrackedTool() {
+  const swift = read('native', 'macos', 'TokenMonitorWidget', 'WidgetViewModel.swift');
+  const start = swift.indexOf('static func provider(_ value: String) -> String {');
+  assert.notEqual(start, -1, 'WidgetFormat.provider should exist');
+  const body = swift.slice(start, swift.indexOf('default:', start));
+  const cases = new Map();
+  for (const match of body.matchAll(/case ([^:\n]+): "([^"]+)"/g)) {
+    for (const id of match[1].matchAll(/"([^"]+)"/g)) cases.set(id[1], match[2]);
+  }
+  return cases;
+}
+
+// Anchored on the declaration rather than the first bracket, so a type
+// annotation such as [String: String] cannot be mistaken for the table.
+function widgetColouredIds() {
+  const swift = read('native', 'macos', 'TokenMonitorWidget', 'WidgetDashboardViews.swift');
+  const start = swift.indexOf('static func color(for vendorID: String) -> Color {');
+  assert.notEqual(start, -1, 'WidgetVendorIdentity.color should exist');
+  const anchor = swift.indexOf('let colors: [String: String] = [', start);
+  assert.notEqual(anchor, -1, 'the colour table declaration should exist');
+  const end = swift.indexOf('\n        ]', anchor);
+  assert.notEqual(end, -1, 'the colour table should close');
+  const ids = new Set();
+  for (const match of swift.slice(anchor, end).matchAll(/"([a-z0-9-]+)":\s*"#/g)) ids.add(match[1]);
+  // The adaptive-ink list also resolves a colour, so an id there is not missing.
+  const inkAnchor = swift.indexOf('let adaptiveInk = [', start);
+  assert.notEqual(inkAnchor, -1, 'the adaptive-ink list should exist');
+  const inkEnd = swift.indexOf(']', inkAnchor);
+  for (const match of swift.slice(inkAnchor, inkEnd).matchAll(/"([a-z0-9-]+)"/g)) ids.add(match[1]);
+  return ids;
+}
+
+test('every tracked tool has an explicit Widget label case', () => {
+  const cases = labelCasesForTrackedTool();
+  const missing = CLIENT_IDS.filter((id) => !cases.has(id));
+  assert.deepEqual(
+    missing,
+    [],
+    'these tracked tools fall through to the capitalized default instead of a real label: ' + missing.join(', ')
+  );
+});
+
+test('tracked tool labels agree with the label its own surface uses', () => {
+  // WidgetFormat.provider serves BOTH surfaces through one switch: a tool row
+  // passes the catalog id, a limits row passes the provider id. They agree for
+  // most ids, but a genuinely dual-namespace id carries two names — the app
+  // calls the tracked client "Claude Code" while its quota window is "Claude",
+  // and "Grok Build" vs "Grok". A limits row never reads this case (the
+  // snapshot stamps displayName), so the shared case has to carry the provider
+  // label; the tool row for that same id is labelled from the provider side too,
+  // which is what the app already ships. Everything else must match the catalog,
+  // because that is where a tool's own name lives.
+  const cases = labelCasesForTrackedTool();
+  for (const id of CLIENT_IDS) {
+    const expected = LIMIT_PROVIDER_IDS.includes(id) ? LIMIT_PROVIDER_LABELS[id] : CLIENT_LABELS[id];
+    assert.equal(cases.get(id), expected, 'WidgetFormat.provider("' + id + '")');
+  }
+});
+
+test('every tracked tool resolves to a widget colour or adaptive ink', () => {
+  const coloured = widgetColouredIds();
+  const missing = CLIENT_IDS.filter((id) => !coloured.has(id));
+  assert.deepEqual(
+    missing,
+    [],
+    'these tracked tools would silently take the shared default blue: ' + missing.join(', ')
+  );
 });

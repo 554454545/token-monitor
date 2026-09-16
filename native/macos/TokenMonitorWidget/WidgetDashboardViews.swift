@@ -661,6 +661,10 @@ enum WidgetVendorIdentity {
             "claude": "#CC7C5E", "codex": "#49A3B0", "hermes": "#D4AF37",
             "gemini": "#4285F4", "antigravity": "#4285F4", "cline": "#53616D",
             "amp": "#F34E3F", "omp": "#ED4ABF",
+            // Factory Droid / Droid CLI shares one client. The renderer paints it
+            // black; without this entry the widget silently fell back to the shared
+            // default blue, which reads as a real vendor colour.
+            "droid": "#000000", "factory": "#000000",
             "deepseek": "#4D6BFE", "openrouter": "#6566F1", "openclaw": "#FF4D4D",
             "meta": "#4385DB", "mistral": "#FA520F", "qwen": "#7771F4",
             "zed": "#5C8BFF", "kilo": "#F8F676", "commandcode": "#9D66E7",
