@@ -661,10 +661,6 @@ enum WidgetVendorIdentity {
             "claude": "#CC7C5E", "codex": "#49A3B0", "hermes": "#D4AF37",
             "gemini": "#4285F4", "antigravity": "#4285F4", "cline": "#53616D",
             "amp": "#F34E3F", "omp": "#ED4ABF",
-            // Factory Droid / Droid CLI shares one client. The renderer paints it
-            // black; without this entry the widget silently fell back to the shared
-            // default blue, which reads as a real vendor colour.
-            "droid": "#000000", "factory": "#000000",
             "deepseek": "#4D6BFE", "openrouter": "#6566F1", "openclaw": "#FF4D4D",
             "meta": "#4385DB", "mistral": "#FA520F", "qwen": "#7771F4",
             "zed": "#5C8BFF", "kilo": "#F8F676", "commandcode": "#9D66E7",
@@ -679,7 +675,14 @@ enum WidgetVendorIdentity {
         ]
         // Oh My Pi is deliberately not here: its brand ink is a bright gradient,
         // so it takes its own colour instead of the near-black adaptive ink.
-        let adaptiveInk = ["grok", "xai", "copilot", "cursor", "opencode", "pi", "zai", "zaiteam", "zcode", "proma", "kimi", "moonshot", "ollama"]
+        //
+        // An id belongs in `colors` only when its mark carries a colour worth
+        // painting a bar with. A near-black mark (droid's `currentColor` artwork,
+        // pi, opencode, cursor, copilot, the Z.ai family) belongs here instead:
+        // "#000000" in `colors` would make that id's PercentageBar invisible on a
+        // dark widget, which is worse than the fallback it replaced. Factory Droid
+        // and Droid CLI share one client and one dark mark.
+        let adaptiveInk = ["grok", "xai", "copilot", "cursor", "opencode", "pi", "droid", "factory", "zai", "zaiteam", "zcode", "proma", "kimi", "moonshot", "ollama"]
         if adaptiveInk.contains(vendorID.lowercased()) { return Color.white.opacity(0.86) }
         return Color(widgetHex: colors[vendorID.lowercased()] ?? colors["default"]!)
     }

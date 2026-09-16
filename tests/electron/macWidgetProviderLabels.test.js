@@ -87,6 +87,13 @@ test('the Widget fallback map agrees with the snapshot labels', () => {
 // The colour table has the same shape of hole and the same failure mode: an id
 // in neither `colors` nor `adaptiveInk` quietly takes the shared default blue,
 // which reads as a real vendor colour rather than as a missing entry.
+//
+// The two lists are not interchangeable, and the difference is why this asserts
+// membership of either rather than of `colors` alone. `colors` is the palette a
+// PercentageBar is painted with, so an id only belongs there when its mark is a
+// colour worth painting with. A near-black mark goes in `adaptiveInk` instead:
+// putting "#000000" in `colors` would make that bar invisible on the dark
+// widget, which is a worse outcome than the fallback it was meant to fix.
 function labelCasesForTrackedTool() {
   const swift = read('native', 'macos', 'TokenMonitorWidget', 'WidgetViewModel.swift');
   const start = swift.indexOf('static func provider(_ value: String) -> String {');
