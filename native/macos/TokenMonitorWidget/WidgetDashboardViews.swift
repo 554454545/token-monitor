@@ -660,7 +660,7 @@ enum WidgetVendorIdentity {
         let colors: [String: String] = [
             "claude": "#CC7C5E", "codex": "#49A3B0", "hermes": "#D4AF37",
             "gemini": "#4285F4", "antigravity": "#4285F4", "cline": "#53616D",
-            "amp": "#F34E3F",
+            "amp": "#F34E3F", "omp": "#ED4ABF",
             "deepseek": "#4D6BFE", "openrouter": "#6566F1", "openclaw": "#FF4D4D",
             "meta": "#4385DB", "mistral": "#FA520F", "qwen": "#7771F4",
             "zed": "#5C8BFF", "kilo": "#F8F676", "commandcode": "#9D66E7",
@@ -673,8 +673,9 @@ enum WidgetVendorIdentity {
             "trae": "#32F08C", "alibaba": "#7771F4", "thirdparty": "#8090A6",
             "default": "#6AB4F0"
         ]
+        // Oh My Pi is deliberately not here: its brand ink is a bright gradient,
+        // so it takes its own colour instead of the near-black adaptive ink.
         let adaptiveInk = ["grok", "xai", "copilot", "cursor", "opencode", "pi", "zai", "zaiteam", "zcode", "proma", "kimi", "moonshot", "ollama"]
-        let adaptiveInk = ["grok", "xai", "copilot", "cursor", "opencode", "pi", "omp", "zai", "zaiteam", "zcode", "proma", "kimi", "moonshot", "ollama"]
         if adaptiveInk.contains(vendorID.lowercased()) { return Color.white.opacity(0.86) }
         return Color(widgetHex: colors[vendorID.lowercased()] ?? colors["default"]!)
     }

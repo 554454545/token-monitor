@@ -3581,7 +3581,7 @@ html.is-windows .settings-panel select option {
 .row-icon-kimi       { -webkit-mask-image: url(../../../assets/icons/kimi.svg);          mask-image: url(../../../assets/icons/kimi.svg); }
 .row-icon-grok       { -webkit-mask-image: url(../../../assets/icons/xai.svg);           mask-image: url(../../../assets/icons/xai.svg); }
 .row-icon-copilot    { -webkit-mask-image: url(../../../assets/icons/copilot.svg);       mask-image: url(../../../assets/icons/copilot.svg); }
-/* Oh My Pi ships no upstream artwork (tokscale's Omp has logo: None), so this mark currently carries Pi's artwork and can be replaced in place when real artwork lands. The .row-icon-<id> rule is the mapping, not the filename (see AGENTS.md). */
+/* Oh My Pi's mark is its own artwork. Rows paint it through a mask, so the row shows a single-ink silhouette and the tray keeps the gradient. The .row-icon-<id> rule is the mapping, not the filename (see AGENTS.md). */
 .row-icon-pi         { -webkit-mask-image: url(../../../assets/icons/pi.svg);            mask-image: url(../../../assets/icons/pi.svg); }
 .row-icon-omp        { -webkit-mask-image: url(../../../assets/icons/omp.svg);            mask-image: url(../../../assets/icons/omp.svg); }
 .row-icon-zed        { -webkit-mask-image: url(../../../assets/icons/zed.svg);           mask-image: url(../../../assets/icons/zed.svg); }
