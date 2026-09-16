@@ -2463,24 +2463,28 @@ function readSettings() {
     // be seeded or their usage drops. `seededClientSplits` makes that a one-time
     // addition, so untracking the row afterwards is not undone on next launch.
     //
-    // `saved.clients` is the trigger, not `merged.clients`: the seed is about what
-    // the user actually had tracked, and a fresh install already gets every
-    // default-tracked client from DEFAULT_CLIENTS without needing to be told.
-    if (settingsFileExisted && saved.clients !== undefined) {
-      const seeded = seedSplitClients(merged.clients, { applied: merged.seededClientSplits });
-      // The marker records that this install has been through the migration, not
-      // that it gained a client. Recording it only on a successful insert would
-      // leave an install that tracks the parent later still un-migrated, so the
-      // seed would fire on a deliberate post-split choice instead of on the
-      // upgrade. `evaluated` is what makes the decision belong to this launch.
-      if (seeded.evaluated.length > 0) {
-        merged.clients = seeded.clients;
-        merged.seededClientSplits = [...new Set([
-          ...String(merged.seededClientSplits || '').split(',').map((value) => value.trim()).filter(Boolean),
-          ...seeded.evaluated
-        ])].join(',');
-        seededClientSplitsPending = true;
-      }
+    // Every launch is evaluated, fresh installs included. Restricting this to an
+    // existing settings file with an explicit `clients` field left two installs
+    // un-marked: one whose file predates that field, and a fresh install, which
+    // takes the split client from DEFAULT_CLIENTS without ever recording that it
+    // did. Both would then be migrated on a later launch, and the seed would fire
+    // on a deliberate untrack — the user drops Oh My Pi and it reappears next start.
+    // Evaluating unconditionally is also cheap: with the split client already
+    // present nothing is inserted, and the marker is what makes that a decision
+    // rather than an absence.
+    const seeded = seedSplitClients(merged.clients, { applied: merged.seededClientSplits });
+    // The marker records that this install has been through the migration, not
+    // that it gained a client. Recording it only on a successful insert would
+    // leave an install that tracks the parent later still un-migrated, so the
+    // seed would fire on a deliberate post-split choice instead of on the
+    // upgrade. `evaluated` is what makes the decision belong to this launch.
+    if (seeded.evaluated.length > 0) {
+      merged.clients = seeded.clients;
+      merged.seededClientSplits = [...new Set([
+        ...String(merged.seededClientSplits || '').split(',').map((value) => value.trim()).filter(Boolean),
+        ...seeded.evaluated
+      ])].join(',');
+      seededClientSplitsPending = true;
     }
     merged.customScanPaths = normalizeCustomScanPaths(merged.customScanPaths);
     // A missing settings file is the only reliable fresh-install signal: a

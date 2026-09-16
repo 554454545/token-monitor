@@ -171,3 +171,30 @@ test('a recorded evaluation keeps a later deliberate Pi-only choice intact', () 
   );
   assert.equal(later.clients, 'claude,codex,pi');
 });
+
+// The headless deployment has no settings.json, so its migration record has to
+// live somewhere else. What matters is the same property the widget has: the
+// evaluation is recorded on the launch that runs it, so an operator who removes
+// the split client afterwards does not have it reappear on the next start.
+// Exercised through the shared helpers the agent uses, because the agent itself
+// reads its input at module load.
+test('a headless client list is migrated once and then left alone', () => {
+  // Launch 1: the operator's CSV names the parent, as a pre-split one would.
+  const first = seedSplitClients('claude,pi');
+  assert.equal(first.clients, 'claude,pi,omp');
+  assert.deepEqual(first.evaluated, ['omp']);
+
+  // That evaluation is what the agent persists; the next launch replays it.
+  const recorded = first.evaluated.join(',');
+  const second = seedSplitClients('claude,pi', { applied: recorded });
+  assert.deepEqual(second.seeded, [], 'the split client must not be re-added');
+  assert.equal(second.clients, 'claude,pi');
+});
+
+// A host that never named the parent is still evaluated, so its record is a
+// decision rather than an absence — the same distinction the widget relies on.
+test('a headless client list is evaluated even without the parent', () => {
+  const evaluated = seedSplitClients('claude,codex');
+  assert.deepEqual(evaluated.evaluated, ['omp']);
+  assert.deepEqual(evaluated.seeded, []);
+});

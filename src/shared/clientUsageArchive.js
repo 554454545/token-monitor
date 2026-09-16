@@ -1,7 +1,9 @@
 'use strict';
 
 const { PERIODS, normalizeClientName, normalizePeriod } = require('./usage');
-const { CLIENT_IDENTITY_SPLITS } = require('./clientIdentitySplits');
+const {
+  CLIENT_IDENTITY_GENERATION, CLIENT_IDENTITY_SPLITS, isPreSplitEntry
+} = require('./clientIdentitySplits');
 const {
   cloneJson,
   hasSummaryPeriod,
@@ -85,6 +87,12 @@ function normalizeArchivedClientUsage(value) {
       capturedAt: capturedAt.toISOString(),
       day: String(rawEntry.day || localDay(capturedAt)),
       month: String(rawEntry.month || localMonth(capturedAt)),
+      // Provenance survives normalization. An entry with no generation predates
+      // the split, which is the only thing that lets a merged snapshot be told
+      // from a genuinely single-client one written afterwards.
+      ...(rawEntry.clientIdentityGeneration !== undefined
+        ? { clientIdentityGeneration: numberValue(rawEntry.clientIdentityGeneration) }
+        : {}),
       periods: {}
     };
     let includesUsage = false;
@@ -118,6 +126,8 @@ function captureArchivedClientUsage(existingArchive, deviceRecord, clients, capt
       capturedAt: captureDate.toISOString(),
       day: localDay(captureDate),
       month: localMonth(captureDate),
+      // Written by this version, so the client id means what it says.
+      clientIdentityGeneration: CLIENT_IDENTITY_GENERATION,
       periods
     };
   }
@@ -227,71 +237,84 @@ function shouldApplyPeriod(periodName, entry, now) {
 // wholly that client, while a merged snapshot cannot be decomposed from its own
 // contents.
 //
-// No capture date is needed to decide this, and none would help. Tokscale has
-// scanned `.omp/agent/sessions` under the `pi` client since v2.0.19 (2026-04-06)
-// and Token Monitor has shipped that scanner continuously since its archives
-// existed, so every `pi` snapshot this archive can hold already covers both
-// products. There is no earlier era of genuine Pi-only `pi` rows to tell apart.
-function mergedSnapshotFor(client) {
+// Decided by the entry's own generation, not by its client id. Tokscale has
+// scanned `.omp/agent/sessions` under `pi` since v2.0.19 and Token Monitor has
+// shipped that scanner continuously since these archives existed, so every `pi`
+// snapshot written before the split covers both products. That says nothing about
+// a `pi` snapshot written after it: a user who untracks Pi today stores a
+// genuinely Pi-only entry, and treating that as merged would subtract the live
+// split client from usage which never contained it.
+function mergedSnapshotFor(client, entry) {
   for (const splitDef of CLIENT_IDENTITY_SPLITS) {
     if (client !== splitDef.merged) continue;
+    if (!isPreSplitEntry(entry)) continue;
     return splitDef;
   }
   return null;
 }
 
-// Net a merged-window snapshot against what the live scan already reports for
-// its pair, leaving only the part that exists nowhere else.
+// Drop the archived sessions the live scan is now reporting, and keep the rest.
 //
-// The snapshot is indistinguishable from a genuinely single-client day, so it
-// cannot be split into "this much was Pi, this much was Oh My Pi". What is
-// knowable is the total: the snapshot covers both products for that day, and
-// the live scan now reports whichever of them is tracked. Subtracting every
-// live row of the pair is therefore the one operation that is right in both
-// directions — it neither counts a live row twice nor drops the residue, which
-// stays attributed to the merged id because that is the only owner the data
-// actually has.
+// A merged-window snapshot cannot be divided into "this much was Pi, this much was
+// Oh My Pi", so subtracting a live aggregate is not an option: live usage grows
+// while the snapshot is frozen, and subtracting the current total would keep
+// eating into the half only the archive still holds. A session id is different -
+// it is written by the client that produced the session, so the same id appearing
+// on either side of a pair names the same session. Matching by id removes exactly
+// the overlap and leaves the residue with the merged id, which is the only owner
+// that data actually has. A live session that has since grown past its archived
+// size still removes only its own archived contribution, so the growth survives.
 function netOutLiveUsage(usage, livePeriod, splitDef) {
-  let effective = usage;
-  for (const liveClientId of [splitDef.merged, splitDef.split]) {
-    const liveTokens = Math.max(0, Math.round(numberValue(livePeriod?.clients?.[liveClientId])));
-    const liveCost = numberValue(livePeriod?.clientCosts?.[liveClientId]);
-    if (liveTokens === 0 && liveCost === 0) continue;
+  const archivedSessions = Object.entries(usage?.sessions || {});
+  const liveSessionIds = new Set();
+  for (const [key, session] of Object.entries(livePeriod?.sessions || {})) {
+    const separator = key.indexOf(':');
+    const sessionId = String(session?.sessionId || (separator >= 0 ? key.slice(separator + 1) : key)).trim();
+    if (sessionId) liveSessionIds.add(sessionId);
+  }
 
-    const models = { ...(effective?.models || {}) };
-    for (const [model, tokens] of Object.entries(livePeriod?.clientModels?.[liveClientId] || {})) {
-      const left = Math.max(0, numberValue(models[model]) - numberValue(tokens));
-      if (left > 0) models[model] = left;
-      else delete models[model];
+  // Without session detail on either side there is no identity to match on, so
+  // fall back to subtracting the live total. That is exact at the moment of the
+  // split and decays toward the live figure as live usage grows, which
+  // under-reports rather than inflates: the archive exists to stop usage from
+  // disappearing, and a figure that is too low is a smaller error than one that
+  // counts the same tokens twice. Real captures carry session detail for every
+  // period, so this path is a guard rather than the normal route.
+  if (archivedSessions.length === 0 || liveSessionIds.size === 0) {
+    let liveTokens = 0;
+    let liveCost = 0;
+    for (const liveClientId of [splitDef.merged, splitDef.split]) {
+      liveTokens += Math.max(0, Math.round(numberValue(livePeriod?.clients?.[liveClientId])));
+      liveCost += numberValue(livePeriod?.clientCosts?.[liveClientId]);
     }
-    const modelCosts = { ...(effective?.modelCosts || {}) };
-    for (const [model, cost] of Object.entries(livePeriod?.clientModelCosts?.[liveClientId] || {})) {
-      const left = Math.max(0, numberValue(modelCosts[model]) - numberValue(cost));
-      if (left > 0) modelCosts[model] = left;
-      else delete modelCosts[model];
-    }
-
-    // A session id is written by the client that produced it, so it names
-    // exactly one product and can be matched by identity rather than arithmetic.
-    const liveSessions = livePeriod?.sessions || {};
-    const sessions = {};
-    for (const [key, session] of Object.entries(effective?.sessions || {})) {
-      const separator = key.indexOf(':')
-      const sessionId = String(session?.sessionId || (separator >= 0 ? key.slice(separator + 1) : key)).trim();
-      if (sessionId && liveSessions[liveClientId + ':' + sessionId]) continue;
-      sessions[key] = session;
-    }
-
-    effective = {
-      ...effective,
-      totalTokens: Math.max(0, Math.round(numberValue(effective?.totalTokens)) - liveTokens),
-      costUsd: Math.max(0, numberValue(effective?.costUsd) - liveCost),
-      models,
-      modelCosts,
-      sessions
+    if (liveTokens === 0 && liveCost === 0) return usage;
+    return {
+      ...usage,
+      totalTokens: Math.max(0, Math.round(numberValue(usage?.totalTokens)) - liveTokens),
+      costUsd: Math.max(0, numberValue(usage?.costUsd) - liveCost)
     };
   }
-  return effective;
+
+  const sessions = {};
+  let removedTokens = 0;
+  let removedCost = 0;
+  for (const [key, session] of archivedSessions) {
+    const separator = key.indexOf(':');
+    const sessionId = String(session?.sessionId || (separator >= 0 ? key.slice(separator + 1) : key)).trim();
+    if (sessionId && liveSessionIds.has(sessionId)) {
+      removedTokens += Math.max(0, Math.round(numberValue(session?.totalTokens)));
+      removedCost += numberValue(session?.costUsd);
+      continue;
+    }
+    sessions[key] = session;
+  }
+  if (removedTokens === 0 && removedCost === 0) return usage;
+  return {
+    ...usage,
+    totalTokens: Math.max(0, Math.round(numberValue(usage?.totalTokens)) - removedTokens),
+    costUsd: Math.max(0, numberValue(usage?.costUsd) - removedCost),
+    sessions
+  };
 }
 
 function applyArchivedClientUsage(summary, archive, options = {}) {
@@ -301,7 +324,7 @@ function applyArchivedClientUsage(summary, archive, options = {}) {
   const next = cloneJson(summary);
 
   for (const [client, entry] of Object.entries(normalizedArchive.clients)) {
-    const splitDef = mergedSnapshotFor(client);
+    const splitDef = mergedSnapshotFor(client, entry);
     // An ordinary entry is skipped once its client is tracked: the live scan now
     // reports it, so adding the archived copy back would double count. A merged
     // snapshot cannot be skipped that way, because becoming tracked covers only
@@ -337,7 +360,7 @@ function pruneArchivedClientUsage(archive, activeClients) {
     // not report, and the archive is the only place that usage exists. A merged
     // entry is left in place and nets itself out against the live rows on every
     // apply instead, which is also what keeps a later untrack from resurfacing it.
-    if (mergedSnapshotFor(client)) continue;
+    if (mergedSnapshotFor(client, normalizedArchive.clients[client])) continue;
     delete normalizedArchive.clients[client];
   }
   return normalizedArchive;

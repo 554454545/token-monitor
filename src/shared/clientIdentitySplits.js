@@ -26,6 +26,23 @@ const CLIENT_IDENTITY_SPLITS = Object.freeze([
 const SPLIT_TO_MERGED = new Map(CLIENT_IDENTITY_SPLITS.map(({ merged, split }) => [split, merged]));
 const MERGED_TO_SPLIT = new Map(CLIENT_IDENTITY_SPLITS.map(({ merged, split }) => [merged, split]));
 
+// The client-identity generation an archive entry was written under.
+//
+// An entry with no generation predates the split, so its merged-id usage may also
+// contain the split client. An entry carrying this value was written after the
+// split and is taken at face value. This is provenance the entry has to carry
+// itself: inferring it from the archive's current contents fails in both
+// directions, because a merged-era day and a post-split day that happens to have
+// only the merged client look identical ("pi, no omp" is a legal post-split
+// state), and a post-split day that legitimately records Pi first and Oh My Pi
+// later would otherwise be folded forever.
+const CLIENT_IDENTITY_GENERATION = 2;
+
+function isPreSplitEntry(entry) {
+  const generation = Number(entry?.clientIdentityGeneration);
+  return !Number.isFinite(generation) || generation < CLIENT_IDENTITY_GENERATION;
+}
+
 // The id a split client rows were recorded under before the split, or null
 // when the id was never merged.
 function mergedClientIdFor(value) {
@@ -93,7 +110,9 @@ function seedSplitClients(clientsCsv, options = {}) {
 }
 
 module.exports = {
+  CLIENT_IDENTITY_GENERATION,
   CLIENT_IDENTITY_SPLITS,
+  isPreSplitEntry,
   mergedClientIdFor,
   seedSplitClients,
   splitClientIdFor

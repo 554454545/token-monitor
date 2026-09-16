@@ -319,84 +319,214 @@ test('an archive never invents a period the scan has not reported', () => {
 //
 // Tokscale has scanned `.omp/agent/sessions` under the `pi` client since v2.0.19
 // (2026-04-06) and Token Monitor has shipped that scanner continuously since
-// these archives existed, so every archived `pi` snapshot this file can hold
-// already covers both Pi and Oh My Pi. Splitting them makes that shared number
-// unsafe in two directions, and both are covered below.
-function mergedPiArchive(tokens = 100) {
+// these archives existed, so a `pi` entry written before the split covers both
+// products. Splitting them makes that unsafe in two directions, and the entry's
+// own generation is what tells the two kinds apart.
+//
+// Times are built from the local calendar rather than a fixed UTC instant: the
+// archive buckets by local day, so a literal like 2026-09-01T12:00Z is already
+// the next day in UTC+14 and the `today` assertions would move under CI's
+// timezone matrix.
+function localNoon(year, month, day) {
+  return new Date(year, month - 1, day, 12, 0, 0);
+}
+
+function localDayKey(date) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function session(client, id, tokens) {
+  return { client, sessionId: id, totalTokens: tokens, costUsd: 0, models: { gpt: tokens }, modelCosts: {} };
+}
+
+// A pre-split entry: no clientIdentityGeneration, and one `pi` row whose sessions
+// include an Oh My Pi session (id `omp1`) that the split id will later report.
+function legacyMergedArchive(now) {
+  const sessions = { 'pi:pi1': session('pi', 'pi1', 60), 'pi:omp1': session('pi', 'omp1', 40) };
+  const period = { totalTokens: 100, costUsd: 0, models: { gpt: 100 }, modelCosts: {}, sessions };
   return {
     version: 1,
     clients: {
       pi: {
         client: 'pi',
-        capturedAt: '2026-09-01T10:00:00.000Z',
-        day: '2026-09-01',
-        month: '2026-09',
-        periods: Object.fromEntries(['today', 'month', 'allTime'].map((periodName) => [periodName, {
-          totalTokens: tokens,
-          costUsd: 1,
-          models: { gpt: tokens },
-          modelCosts: { gpt: 1 },
-          sessions: {}
-        }]))
+        capturedAt: now.toISOString(),
+        day: localDayKey(now),
+        month: localDayKey(now).slice(0, 7),
+        periods: { today: period, month: period, allTime: period }
       }
     }
   };
 }
 
-function liveSplitSummary(piTokens, ompTokens) {
+function liveSummary(now, sessionsByClient) {
   const clients = {};
-  const clientModels = {};
-  if (piTokens > 0) { clients.pi = piTokens; clientModels.pi = { gpt: piTokens }; }
-  if (ompTokens > 0) { clients.omp = ompTokens; clientModels.omp = { gpt: ompTokens }; }
-  const totalTokens = piTokens + ompTokens;
-  return { periods: Object.fromEntries(['today', 'month', 'allTime'].map((periodName) => [periodName, {
-    totalTokens, clients, clientModels
-  }])) };
+  const sessions = {};
+  for (const [client, entries] of Object.entries(sessionsByClient)) {
+    let tokens = 0;
+    for (const [id, value] of entries) {
+      sessions[`${client}:${id}`] = session(client, id, value);
+      tokens += value;
+    }
+    if (tokens > 0) clients[client] = tokens;
+  }
+  const totalTokens = Object.values(clients).reduce((sum, value) => sum + value, 0);
+  const period = { totalTokens, clients, sessions };
+  return { periods: { today: period, month: { ...period }, allTime: { ...period } } };
 }
 
-// The merged snapshot already contains Oh My Pi, so replaying the split client's
-// live rows on top of it would count that usage twice. The snapshot cannot be
-// re-attributed without inventing provenance, so the live rows are netted out
-// and the remainder stays with the merged id.
-test('a merged Pi snapshot does not double count a live Oh My Pi row', () => {
-  const applied = applyArchivedClientUsage(liveSplitSummary(0, 40), mergedPiArchive(100), {
-    activeClients: 'omp',
-    now: new Date('2026-09-01T12:00:00.000Z')
-  });
-  // 40 live Oh My Pi + the 60 that only the archived Pi snapshot knows about.
-  assert.equal(applied.periods.today.totalTokens, 100);
+// The merged snapshot already holds Oh My Pi, so replaying its live row on top
+// would count that usage twice. The archived copy of the *same session* is what
+// gets removed, which is what keeps this exact as live usage grows.
+test('a merged Pi snapshot does not double count a live Oh My Pi session', () => {
+  const now = localNoon(2026, 9, 1);
+  const applied = applyArchivedClientUsage(
+    liveSummary(now, { omp: [['omp1', 40]] }),
+    legacyMergedArchive(now),
+    { activeClients: 'omp', now }
+  );
+  // The live Oh My Pi session replaces the archived copy; archived Pi 60 remains.
+  assert.equal(applied.periods.allTime.totalTokens, 100);
 });
 
-// The mirror case: with both ids live the snapshot contributes nothing, because
-// between them the live rows account for everything it holds.
+// The case aggregate subtraction got wrong: live usage keeps growing after the
+// split, and growth must not be eaten by a frozen snapshot.
+test('a merged Pi snapshot keeps Oh My Pi growth that happened after the split', () => {
+  const now = localNoon(2026, 9, 1);
+  const applied = applyArchivedClientUsage(
+    liveSummary(now, { omp: [['omp1', 120]] }),
+    legacyMergedArchive(now),
+    { activeClients: 'omp', now }
+  );
+  // 60 archived Pi + 120 live Oh My Pi (the same session, now larger).
+  assert.equal(applied.periods.allTime.totalTokens, 180);
+});
+
+test('a merged Pi snapshot keeps an Oh My Pi session created after the split', () => {
+  const now = localNoon(2026, 9, 1);
+  const applied = applyArchivedClientUsage(
+    liveSummary(now, { omp: [['ompNEW', 120]] }),
+    legacyMergedArchive(now),
+    { activeClients: 'omp', now }
+  );
+  // Nothing overlaps, so the whole archived 100 stands beside the live 120.
+  assert.equal(applied.periods.allTime.totalTokens, 220);
+});
+
+// The mirror of the growth case for the merged id itself.
+test('a merged Pi snapshot keeps Pi growth that happened while it was untracked', () => {
+  const now = localNoon(2026, 9, 1);
+  const applied = applyArchivedClientUsage(
+    liveSummary(now, { pi: [['pi1', 80]] }),
+    legacyMergedArchive(now),
+    { activeClients: 'pi', now }
+  );
+  // 40 archived Oh My Pi + 80 live Pi (same session id, grown).
+  assert.equal(applied.periods.allTime.totalTokens, 120);
+});
+
 test('a merged Pi snapshot contributes nothing once both ids are live', () => {
-  const applied = applyArchivedClientUsage(liveSplitSummary(60, 40), mergedPiArchive(100), {
-    activeClients: 'pi,omp',
-    now: new Date('2026-09-01T12:00:00.000Z')
-  });
-  assert.equal(applied.periods.today.totalTokens, 100);
+  const now = localNoon(2026, 9, 1);
+  const applied = applyArchivedClientUsage(
+    liveSummary(now, { pi: [['pi1', 60]], omp: [['omp1', 40]] }),
+    legacyMergedArchive(now),
+    { activeClients: 'pi,omp', now }
+  );
+  assert.equal(applied.periods.allTime.totalTokens, 100);
 });
 
-// The older single-row behaviour, which must not regress: a merged snapshot is
-// the only holder of the split client's history when that client is not tracked.
-test('a merged Pi snapshot still restores usage while the split id is untracked', () => {
-  const applied = applyArchivedClientUsage(liveSplitSummary(60, 0), mergedPiArchive(100), {
-    activeClients: 'pi',
-    now: new Date('2026-09-01T12:00:00.000Z')
-  });
-  assert.equal(applied.periods.today.totalTokens, 100);
+// A snapshot this version wrote is genuinely that client, so the live split id
+// must not be subtracted from it. Treating it as merged would silently remove
+// usage that never contained Oh My Pi at all.
+test('a genuinely Pi-only snapshot written after the split keeps its full total', () => {
+  const now = localNoon(2026, 9, 1);
+  const piOnly = captureArchivedClientUsage({}, {
+    updatedAt: now.toISOString(),
+    periods: Object.fromEntries(['today', 'month', 'allTime'].map((periodName) => [periodName, {
+      clients: { pi: 100 },
+      sessions: { 'pi:pi1': session('pi', 'pi1', 100) }
+    }]))
+  }, 'pi', now);
+  assert.equal(piOnly.clients.pi.clientIdentityGeneration, 2, 'the write must be marked');
+  const applied = applyArchivedClientUsage(
+    liveSummary(now, { omp: [['ompX', 40]] }),
+    piOnly,
+    { activeClients: 'omp', now }
+  );
+  assert.equal(applied.periods.allTime.totalTokens, 140, 'archived Pi 100 + live Oh My Pi 40');
 });
 
-// Pruning must not delete a merged snapshot. Pruning means "the live scan owns
-// this id now", which is true of an ordinary client but not of one holding two
-// products: deleting it would discard whichever of the two is not on disk, and
-// the archive is the only place that usage exists.
-test('re-enabling Pi does not discard the merged snapshot holding Oh My Pi', () => {
-  const pruned = pruneArchivedClientUsage(mergedPiArchive(100), 'pi');
-  assert.ok(pruned.clients.pi, 'the merged snapshot should survive pruning');
-  assert.equal(pruned.clients.pi.periods.allTime.totalTokens, 100);
+// Pruning means "the live scan owns this id now", which is not true of an entry
+// holding two products: the archive is the only place the untracked one exists.
+test('re-enabling Pi does not discard a pre-split merged snapshot', () => {
+  const now = localNoon(2026, 9, 1);
+  const pruned = pruneArchivedClientUsage(legacyMergedArchive(now), 'pi');
+  assert.ok(pruned.clients.pi, 'the pre-split snapshot should survive pruning');
   // An ordinary client is still pruned exactly as before.
-  const ordinary = { version: 1, clients: { opencode: mergedPiArchive(50).clients.pi } };
-  ordinary.clients.opencode.client = 'opencode';
+  const ordinary = captureArchivedClientUsage({}, {
+    updatedAt: now.toISOString(),
+    periods: Object.fromEntries(['today', 'month', 'allTime'].map((periodName) => [periodName, {
+      clients: { opencode: 50 },
+      sessions: { 'opencode:o1': session('opencode', 'o1', 50) }
+    }]))
+  }, 'opencode', now);
   assert.equal(pruneArchivedClientUsage(ordinary, 'opencode').clients.opencode, undefined);
+});
+
+// Provenance has to decide this, not the client id or the totals. Real captures
+// can carry no session detail (a locally-parsed client, or a record written
+// before sessions were kept), and then the aggregate fallback is the only path.
+// A post-split Pi-only entry and a pre-split merged one are byte-identical apart
+// from the generation marker, so the two must behave differently.
+test('provenance, not the client id, decides whether a Pi snapshot is merged', () => {
+  const now = localNoon(2026, 9, 1);
+  const period = { totalTokens: 100, costUsd: 0, models: { gpt: 100 }, modelCosts: {}, sessions: {} };
+  const entry = (generation) => ({
+    version: 1,
+    clients: {
+      pi: {
+        client: 'pi',
+        capturedAt: now.toISOString(),
+        day: localDayKey(now),
+        month: localDayKey(now).slice(0, 7),
+        ...(generation === undefined ? {} : { clientIdentityGeneration: generation }),
+        periods: { today: period, month: period, allTime: period }
+      }
+    }
+  });
+  const live = liveSummary(now, { omp: [['ompFresh', 40]] });
+
+  // Marked: this entry is genuinely Pi, so the live Oh My Pi row is additional.
+  const fresh = applyArchivedClientUsage(live, entry(2), { activeClients: 'omp', now });
+  assert.equal(fresh.periods.allTime.totalTokens, 140, 'a post-split Pi entry keeps Oh My Pi separate');
+
+  // Unmarked: written before the split, so it may already contain Oh My Pi.
+  const legacy = applyArchivedClientUsage(live, entry(undefined), { activeClients: 'omp', now });
+  assert.equal(legacy.periods.allTime.totalTokens, 100, 'a pre-split entry nets out the live Oh My Pi row');
+});
+
+// The same distinction on the prune side: pruning must drop an ordinary client
+// but keep a pre-split snapshot, which is the only holder of the other product.
+test('provenance, not the client id, decides whether pruning keeps a Pi snapshot', () => {
+  const now = localNoon(2026, 9, 1);
+  const period = { totalTokens: 100, costUsd: 0, models: { gpt: 100 }, modelCosts: {}, sessions: {} };
+  const legacy = {
+    version: 1,
+    clients: {
+      pi: {
+        client: 'pi',
+        capturedAt: now.toISOString(),
+        day: localDayKey(now),
+        month: localDayKey(now).slice(0, 7),
+        periods: { today: period, month: period, allTime: period }
+      }
+    }
+  };
+  assert.ok(pruneArchivedClientUsage(legacy, 'pi').clients.pi, 'a pre-split snapshot survives');
+  const marked = JSON.parse(JSON.stringify(legacy));
+  marked.clients.pi.clientIdentityGeneration = 2;
+  assert.equal(
+    pruneArchivedClientUsage(marked, 'pi').clients.pi, undefined,
+    'a post-split entry is an ordinary client and prunes as before'
+  );
 });
