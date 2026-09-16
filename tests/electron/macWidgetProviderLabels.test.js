@@ -162,3 +162,56 @@ test('every tracked tool resolves to a widget colour or adaptive ink', () => {
     'these tracked tools would silently take the shared default blue: ' + missing.join(', ')
   );
 });
+
+// ---------------------------------------------------------------------------
+// The same two surfaces from the provider side.
+//
+// `droid` and `factory` are two ids for one product: `droid` is the tracked
+// client, `factory` is the limits provider that reads its quota. The colour and
+// icon assertions above start from CLIENT_IDS, so neither covers `factory` —
+// which is how it shipped resolving to a factory.svg that does not exist, and
+// rendering the Circle fallback instead of the Droid mark its quota row is
+// meant to carry. Starting from LIMIT_PROVIDER_IDS is what closes that gap.
+function iconAliasesForProviders() {
+  const swift = read('native', 'macos', 'TokenMonitorWidget', 'WidgetDashboardViews.swift');
+  const start = swift.indexOf('static func iconName(for vendorID: String) -> String {');
+  assert.notEqual(start, -1, 'WidgetVendorIdentity.iconName should exist');
+  const end = swift.indexOf('default:', start);
+  assert.notEqual(end, -1, 'the icon switch should have a default');
+  const aliases = new Map();
+  for (const match of swift.slice(start, end).matchAll(/case ([^:\n]+): "([^"]+)"/g)) {
+    for (const id of match[1].matchAll(/"([^"]+)"/g)) aliases.set(id[1], match[2]);
+  }
+  return aliases;
+}
+
+test('every limits provider resolves to an icon asset that exists', () => {
+  // Resolved through the alias the widget actually applies, so the invariant is
+  // "this row renders a mark", not "a file is named after the id". Sharing
+  // artwork is normal (factory -> droid, zaiteam -> zai, micode -> xiaomi).
+  const aliases = iconAliasesForProviders();
+  const missing = [];
+  for (const id of LIMIT_PROVIDER_IDS) {
+    const name = aliases.get(id) || id;
+    const asset = path.join(rootDir, 'assets', 'icons', name + '.svg');
+    if (!fs.existsSync(asset)) missing.push(id + ' -> ' + name + '.svg');
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    'these providers would render the Circle fallback instead of a mark: ' + missing.join(', ')
+  );
+});
+
+test('every limits provider resolves to a widget colour or adaptive ink', () => {
+  // The provider half of the colour guard above. Without this, a provider id
+  // that is not also a tracked client could take the shared default blue and
+  // read as a real vendor colour.
+  const coloured = widgetColouredIds();
+  const missing = LIMIT_PROVIDER_IDS.filter((id) => !coloured.has(id));
+  assert.deepEqual(
+    missing,
+    [],
+    'these providers would silently take the shared default blue: ' + missing.join(', ')
+  );
+});

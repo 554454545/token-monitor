@@ -652,6 +652,13 @@ enum WidgetVendorIdentity {
         case "hermes": "hermes-agent"
         case "mimo", "micode": "xiaomi"
         case "zcode", "zaiteam": "zai"
+        // Factory Droid is two ids: `droid` is the tracked client (Droid CLI and
+        // Factory desktop token usage) and `factory` is the limits provider that
+        // reads its quota. They share one data plane and one mark, but only the
+        // renderer carried that mapping — here `factory` resolved to a
+        // factory.svg that does not exist, so the quota row rendered the Circle
+        // fallback instead of the Droid mark.
+        case "factory": "droid"
         default: vendorID.lowercased()
         }
     }
