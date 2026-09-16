@@ -17,7 +17,10 @@
 // and the session archive treats an archived merged-id session as already
 // covered when the split id reports the same session live.
 const CLIENT_IDENTITY_SPLITS = Object.freeze([
-  Object.freeze({ merged: 'pi', split: 'omp' })
+  Object.freeze({
+    merged: 'pi',
+    split: 'omp',
+  })
 ]);
 
 const SPLIT_TO_MERGED = new Map(CLIENT_IDENTITY_SPLITS.map(({ merged, split }) => [split, merged]));
@@ -49,6 +52,12 @@ function splitClientIdFor(value) {
 // `applied` is the persisted set of split ids already seeded, so the addition
 // happens once: a user who deliberately untracks the split client afterwards
 // must not have it silently re-added on the next launch.
+//
+// A client the user does not track today is still *evaluated* here, and the
+// caller is expected to record that evaluation even though nothing was added.
+// Otherwise the decision is deferred to whatever the user happens to track at
+// the next launch, and the migration would fire on a deliberate post-split
+// choice instead of on the upgrade it belongs to. `evaluated` is that set.
 function seedSplitClients(clientsCsv, options = {}) {
   const appliedSource = Array.isArray(options.applied)
     ? options.applied
@@ -65,14 +74,22 @@ function seedSplitClients(clientsCsv, options = {}) {
   for (const client of tracked) {
     clients.push(client);
     for (const { merged, split } of CLIENT_IDENTITY_SPLITS) {
-      if (client !== merged || applied.has(split) || present.has(split)) continue;
+      if (client !== merged || applied.has(split)) continue;
+      if (present.has(split)) continue;
       // Directly after its parent, so the CSV reads in the order the split
       // actually happened instead of growing an unrelated tail.
       clients.push(split);
       seeded.push(split);
     }
   }
-  return { clients: clients.join(','), seeded };
+  // Every split is decided by this pass, whether or not its parent is tracked.
+  // An install that happens not to track the parent still has to record that
+  // the migration ran, or the decision waits for whatever the user tracks at
+  // some later launch and fires on a deliberate post-split choice instead.
+  const evaluated = CLIENT_IDENTITY_SPLITS
+    .map(({ split }) => split)
+    .filter((split) => !applied.has(split));
+  return { clients: clients.join(','), evaluated, seeded };
 }
 
 module.exports = {

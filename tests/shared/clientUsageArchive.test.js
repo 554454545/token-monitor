@@ -313,3 +313,90 @@ test('an archive never invents a period the scan has not reported', () => {
   // The period it does have still gets the archived usage.
   assert.equal(applied.today.clients.hermes, 100);
 });
+
+// ---------------------------------------------------------------------------
+// Client identity splits (clientIdentitySplits.js).
+//
+// Tokscale has scanned `.omp/agent/sessions` under the `pi` client since v2.0.19
+// (2026-04-06) and Token Monitor has shipped that scanner continuously since
+// these archives existed, so every archived `pi` snapshot this file can hold
+// already covers both Pi and Oh My Pi. Splitting them makes that shared number
+// unsafe in two directions, and both are covered below.
+function mergedPiArchive(tokens = 100) {
+  return {
+    version: 1,
+    clients: {
+      pi: {
+        client: 'pi',
+        capturedAt: '2026-09-01T10:00:00.000Z',
+        day: '2026-09-01',
+        month: '2026-09',
+        periods: Object.fromEntries(['today', 'month', 'allTime'].map((periodName) => [periodName, {
+          totalTokens: tokens,
+          costUsd: 1,
+          models: { gpt: tokens },
+          modelCosts: { gpt: 1 },
+          sessions: {}
+        }]))
+      }
+    }
+  };
+}
+
+function liveSplitSummary(piTokens, ompTokens) {
+  const clients = {};
+  const clientModels = {};
+  if (piTokens > 0) { clients.pi = piTokens; clientModels.pi = { gpt: piTokens }; }
+  if (ompTokens > 0) { clients.omp = ompTokens; clientModels.omp = { gpt: ompTokens }; }
+  const totalTokens = piTokens + ompTokens;
+  return { periods: Object.fromEntries(['today', 'month', 'allTime'].map((periodName) => [periodName, {
+    totalTokens, clients, clientModels
+  }])) };
+}
+
+// The merged snapshot already contains Oh My Pi, so replaying the split client's
+// live rows on top of it would count that usage twice. The snapshot cannot be
+// re-attributed without inventing provenance, so the live rows are netted out
+// and the remainder stays with the merged id.
+test('a merged Pi snapshot does not double count a live Oh My Pi row', () => {
+  const applied = applyArchivedClientUsage(liveSplitSummary(0, 40), mergedPiArchive(100), {
+    activeClients: 'omp',
+    now: new Date('2026-09-01T12:00:00.000Z')
+  });
+  // 40 live Oh My Pi + the 60 that only the archived Pi snapshot knows about.
+  assert.equal(applied.periods.today.totalTokens, 100);
+});
+
+// The mirror case: with both ids live the snapshot contributes nothing, because
+// between them the live rows account for everything it holds.
+test('a merged Pi snapshot contributes nothing once both ids are live', () => {
+  const applied = applyArchivedClientUsage(liveSplitSummary(60, 40), mergedPiArchive(100), {
+    activeClients: 'pi,omp',
+    now: new Date('2026-09-01T12:00:00.000Z')
+  });
+  assert.equal(applied.periods.today.totalTokens, 100);
+});
+
+// The older single-row behaviour, which must not regress: a merged snapshot is
+// the only holder of the split client's history when that client is not tracked.
+test('a merged Pi snapshot still restores usage while the split id is untracked', () => {
+  const applied = applyArchivedClientUsage(liveSplitSummary(60, 0), mergedPiArchive(100), {
+    activeClients: 'pi',
+    now: new Date('2026-09-01T12:00:00.000Z')
+  });
+  assert.equal(applied.periods.today.totalTokens, 100);
+});
+
+// Pruning must not delete a merged snapshot. Pruning means "the live scan owns
+// this id now", which is true of an ordinary client but not of one holding two
+// products: deleting it would discard whichever of the two is not on disk, and
+// the archive is the only place that usage exists.
+test('re-enabling Pi does not discard the merged snapshot holding Oh My Pi', () => {
+  const pruned = pruneArchivedClientUsage(mergedPiArchive(100), 'pi');
+  assert.ok(pruned.clients.pi, 'the merged snapshot should survive pruning');
+  assert.equal(pruned.clients.pi.periods.allTime.totalTokens, 100);
+  // An ordinary client is still pruned exactly as before.
+  const ordinary = { version: 1, clients: { opencode: mergedPiArchive(50).clients.pi } };
+  ordinary.clients.opencode.client = 'opencode';
+  assert.equal(pruneArchivedClientUsage(ordinary, 'opencode').clients.opencode, undefined);
+});

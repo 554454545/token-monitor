@@ -2468,11 +2468,16 @@ function readSettings() {
     // default-tracked client from DEFAULT_CLIENTS without needing to be told.
     if (settingsFileExisted && saved.clients !== undefined) {
       const seeded = seedSplitClients(merged.clients, { applied: merged.seededClientSplits });
-      if (seeded.seeded.length > 0) {
+      // The marker records that this install has been through the migration, not
+      // that it gained a client. Recording it only on a successful insert would
+      // leave an install that tracks the parent later still un-migrated, so the
+      // seed would fire on a deliberate post-split choice instead of on the
+      // upgrade. `evaluated` is what makes the decision belong to this launch.
+      if (seeded.evaluated.length > 0) {
         merged.clients = seeded.clients;
         merged.seededClientSplits = [...new Set([
           ...String(merged.seededClientSplits || '').split(',').map((value) => value.trim()).filter(Boolean),
-          ...seeded.seeded
+          ...seeded.evaluated
         ])].join(',');
         seededClientSplitsPending = true;
       }
