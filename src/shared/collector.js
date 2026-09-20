@@ -17,7 +17,10 @@ const {
 const { tokscalePackageNameForPlatform, tokscalePlatformKey } = require('./tokscalePlatform');
 const { createTokscaleCapabilityResolver, filterSupportedClients, parseSupportedClients } = require('./tokscaleCapabilities');
 const { customPricingPath, tokscaleCacheDirs, tokscaleConfigDir, tokscaleHomeDir } = require('./tokscaleConfig');
-const { normalizeCustomScanPaths, tokscaleExtraDirsEnv } = require('./customScanPaths');
+const {
+  effectiveCustomScanPaths,
+  tokscaleExtraDirsEnv
+} = require('./customScanPaths');
 const { TOKSCALE_CLIENT_ALIASES, tokscaleScanClientIds } = require('./tokscaleClientMapping');
 const {
   applyPeriodDelta,
@@ -239,6 +242,15 @@ function tokscaleCommand(options = {}) {
     ...command,
     identity: [resolved?.source || 'none', resolved?.path || '', resolved?.version || '', resolved?.integrity || ''].join('|')
   };
+}
+
+function effectiveCollectorScanPaths(value, options = {}) {
+  return effectiveCustomScanPaths(value, {
+    ...options,
+    platform: options.platform || process.platform,
+    env: options.env || process.env,
+    windowsInterop: options.windowsInterop === true
+  });
 }
 
 function parseJsonOutput(stdout) {
@@ -1103,7 +1115,12 @@ async function collectUsageOnce(options) {
   const runTokscaleScan = options.runTokscale || ((input) => runTokscale({
     ...input,
     workspaces: projectsEnabled,
-    customScanPaths: options.customScanPaths,
+    customScanPaths: effectiveCollectorScanPaths(options.customScanPaths, {
+      platform: options.platform || process.platform,
+      env: options.env || process.env,
+      homeDir: options.homeDir,
+      windowsInterop: options.windowsInterop === true
+    }),
     terminationOptions: options.subprocessTerminationOptions,
     onTerminationUnconfirmed: () => reportTerminationUnconfirmed('tokscale-scan')
   }));
@@ -1114,7 +1131,12 @@ async function collectUsageOnce(options) {
   };
   const runGraphFn = options.runGraph || ((input) => runTokscaleGraph({
     ...input,
-    customScanPaths: options.customScanPaths,
+    customScanPaths: effectiveCollectorScanPaths(options.customScanPaths, {
+      platform: options.platform || process.platform,
+      env: options.env || process.env,
+      homeDir: options.homeDir,
+      windowsInterop: options.windowsInterop === true
+    }),
     terminationOptions: options.subprocessTerminationOptions,
     onTerminationUnconfirmed: () => reportTerminationUnconfirmed('tokscale-graph')
   }));
@@ -2030,7 +2052,12 @@ function clientSourceRoots(clientsCsv, options = {}) {
   add('lmstudio', ['lmstudio-server-logs', path.join(lmStudioHome, 'server-logs')]);
   const unslothHome = nonBlankEnvPath('UNSLOTH_STUDIO_HOME', path.join(home, '.unsloth', 'studio'), env);
   add('unsloth', ['unsloth-db', unslothHome, path.join(unslothHome, 'studio.db')]);
-  const customScanPaths = normalizeCustomScanPaths(options.customScanPaths, { platform });
+  const customScanPaths = effectiveCollectorScanPaths(options.customScanPaths, {
+    platform,
+    env: options.env || process.env,
+    homeDir: options.homeDir,
+    windowsInterop: options.windowsInterop === true
+  });
   for (const [client, dirs] of Object.entries(customScanPaths)) {
     if (!enabled.has(client)) continue;
     const roots = byClient[client] || (byClient[client] = []);
@@ -2103,8 +2130,11 @@ function selfSyncSourceRootsForClients(clientsCsv) {
 
 function watchClientRootsForClients(clientsCsv, options = {}) {
   const rootsByClient = {};
-  const customScanPaths = normalizeCustomScanPaths(options.customScanPaths, {
-    platform: options.platform || process.platform
+  const customScanPaths = effectiveCollectorScanPaths(options.customScanPaths, {
+    platform: options.platform || process.platform,
+    env: options.env || process.env,
+    homeDir: options.homeDir,
+    windowsInterop: options.windowsInterop === true
   });
   for (const [client, dirs] of Object.entries(clientWatchCandidates(clientsCsv, options))) {
     // Cursor and Antigravity's built-in roots are caches written by our own
@@ -2287,8 +2317,11 @@ function directChildOnly(isSource) {
 // entirely rather than hand chokidar a predicate that always answers false.
 function watchPolicyEntries(clientsCsv, options = {}) {
   const candidates = clientWatchCandidates(clientsCsv, options);
-  const customScanPaths = normalizeCustomScanPaths(options.customScanPaths, {
-    platform: options.platform || process.platform
+  const customScanPaths = effectiveCollectorScanPaths(options.customScanPaths, {
+    platform: options.platform || process.platform,
+    env: options.env || process.env,
+    homeDir: options.homeDir,
+    windowsInterop: options.windowsInterop === true
   });
   // canonicalWatchPath must be applied here too: chokidar reports events under
   // whatever root it was handed, so a matcher built on the uncanonicalised path
@@ -2994,7 +3027,8 @@ function startCollector(options) {
     customScanPaths: options.customScanPaths,
     env: options.env,
     homeDir: options.homeDir,
-    platform: options.platform
+    platform: options.platform,
+    windowsInterop: options.windowsInterop === true
   };
   const qoderCnDbPath = qoderCnDbPathForClients(normalizedClients, {
     homeDir: options.homeDir,
@@ -3236,6 +3270,7 @@ function startCollector(options) {
         deviceId,
         agentVersion,
         agentRuntime,
+        windowsInterop: options.windowsInterop === true,
         osInfo: deviceOsInfo,
         now: collectedAt,
         includeHistory,
@@ -3710,23 +3745,69 @@ function startCollector(options) {
     }
 
     const usePolling = watchUsePolling || watchDescriptorFallback;
+    // Linux inotify does not reliably receive events for writes made by a
+    // Windows process through DrvFs (/mnt/*). Keep native events for the
+    // normal Linux roots, but poll the Windows-interoperability roots so the
+    // WSL widget reacts to the Windows Codex/VS Code desktop clients instead
+    // of waiting for the five-minute interval (or hourly reconciliation).
+    // WSL's own home can also sit on a filesystem where inotify delivery is
+    // intermittent (especially while the Codex session writer is active).
+    // Codex is the primary local source, so poll only its two session trees.
+    const localCodexRoots = (sourceOptions.platform || process.platform) === 'linux'
+      ? [
+        path.join(sourceOptions.homeDir || os.homedir(), '.codex', 'sessions'),
+        path.join(sourceOptions.homeDir || os.homedir(), '.codex', 'archived_sessions')
+      ].filter(dirExists).map(canonicalWatchPath)
+      : [];
+    const pollingRoots = [...new Set(localCodexRoots)];
+    const isPollingDir = (dir) => pollingRoots.some((root) => (
+      dir === root
+      || dir.startsWith(`${root}${path.sep}`)
+      || root.startsWith(`${dir}${path.sep}`)
+    ));
+    const pollingDirs = !usePolling && pollingRoots.length > 0
+      ? dirs.filter(isPollingDir)
+      : [];
+    const nativeDirs = !usePolling && pollingRoots.length > 0
+      ? dirs.filter((dir) => !isPollingDir(dir))
+      : [];
     try {
-      const host = createWatcherHost(
-        { dirs, clients, customScanPaths: sourceOptions.customScanPaths, usePolling },
-        {
-          onHostFallback: (error) => {
-            emitDiagnosticEvent({ subsystem: 'watcher', code: 'watcher-host-fallback' });
-            log(`Watch worker unavailable (${error.message}); watching on this thread.`);
+      const groups = usePolling
+        ? [{ dirs, usePolling: true }]
+        : [
+          ...(nativeDirs.length > 0 ? [{ dirs: nativeDirs, usePolling: false }] : []),
+          ...(pollingDirs.length > 0 ? [{ dirs: pollingDirs, usePolling: true }] : [])
+        ];
+      for (const group of groups) {
+        const host = createWatcherHost(
+          {
+            dirs: group.dirs,
+            clients,
+            customScanPaths: sourceOptions.customScanPaths,
+            usePolling: group.usePolling
           },
-          onError: handleWatchError,
-          onEvent: handleWatchEvent
-        }
-      );
-      watchers.push(host);
+          {
+            onHostFallback: (error) => {
+              emitDiagnosticEvent({ subsystem: 'watcher', code: 'watcher-host-fallback' });
+              log(`Watch worker unavailable (${error.message}); watching on this thread.`);
+            },
+            onError: handleWatchError,
+            onEvent: handleWatchEvent
+          }
+        );
+        watchers.push(host);
+      }
       watchedDirectoryKey = directoryKey;
       lastWatchFailureCode = null;
-      for (const dir of dirs) log(`Watching ${dir} (${usePolling ? 'polling 2s' : 'native events'})`);
+      for (const dir of nativeDirs) log(`Watching ${dir} (native events)`);
+      for (const dir of pollingDirs) {
+        log(`Watching ${dir} (polling 2s; WSL Codex)`);
+      }
+      if (usePolling) {
+        for (const dir of dirs) log(`Watching ${dir} (polling 2s)`);
+      }
     } catch (error) {
+      closeWatchers();
       watchedDirectoryKey = null;
       lastWatchFailureCode = 'watcher-rebuild-failed';
       emitDiagnosticEvent({ subsystem: 'watcher', code: 'watcher-rebuild-failed' });

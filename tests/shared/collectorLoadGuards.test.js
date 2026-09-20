@@ -3608,6 +3608,75 @@ test('TOKEN_MONITOR_WATCH_POLLING overrides the native watch default', () => {
   assert.equal(resolveWatchUsePolling(true, { TOKEN_MONITOR_WATCH_POLLING: '' }), true);
 });
 
+test('WSL Codex roots use polling while Windows interop roots keep native events', async () => {
+  const tmp = withTmpHome([
+    path.join('.claude', 'projects'),
+    path.join('.codex', 'sessions'),
+    path.join('.codex', 'archived_sessions')
+  ]);
+  const windowsHome = path.join(tmp, 'windows-user');
+  const windowsCodexSessions = path.join(windowsHome, '.codex', 'sessions');
+  const windowsCodexArchive = path.join(windowsHome, '.codex', 'archived_sessions');
+  fs.mkdirSync(windowsCodexSessions, { recursive: true });
+  fs.mkdirSync(windowsCodexArchive, { recursive: true });
+  const originalHomedir = os.homedir;
+  const originalSharedDir = process.env.TOKEN_MONITOR_SHARED_DIR;
+  const originalWindowsHome = process.env.TOKEN_MONITOR_WINDOWS_HOME;
+  os.homedir = () => tmp;
+  process.env.TOKEN_MONITOR_SHARED_DIR = tmp;
+  process.env.TOKEN_MONITOR_WINDOWS_HOME = windowsHome;
+
+  const chokidar = require('chokidar');
+  const originalWatch = chokidar.watch;
+  const watchOptions = [];
+  chokidar.watch = (dirs, options) => {
+    watchOptions.push({ dirs, options });
+    return { on: () => {}, close: () => {} };
+  };
+  const childProcess = require('node:child_process');
+  const originalSpawn = childProcess.spawn;
+  childProcess.spawn = recordingSpawn([]);
+
+  let handle = null;
+  try {
+    const { startCollector } = freshCollector();
+    handle = startCollector({
+      clients: 'claude,codex',
+      allTimeSince: '2024-01-01',
+      commandTimeoutMs: 1000,
+      deviceId: 'test-device',
+      agentVersion: 'test',
+      intervalMs: 60 * 1000,
+      watchEnabled: true,
+      windowsInterop: true,
+      limitsEnabled: false,
+      historyEnabled: false,
+      onUpdate: () => {}
+    });
+    await waitForCondition(() => watchOptions.length === 2);
+    const native = watchOptions.find(({ options }) => options.usePolling === false);
+    const polling = watchOptions.find(({ options }) => options.usePolling === true);
+    assert.ok(native, 'Windows interop roots stay on native events');
+    assert.ok(polling, 'WSL Codex roots get a polling watcher');
+    assert.deepEqual(polling.dirs.sort(), [
+      path.join(tmp, '.codex', 'sessions'),
+      path.join(tmp, '.codex', 'archived_sessions')
+    ].sort());
+    assert.equal(polling.options.interval, 2000);
+  } finally {
+    if (handle) handle.stop();
+    childProcess.spawn = originalSpawn;
+    chokidar.watch = originalWatch;
+    os.homedir = originalHomedir;
+    if (originalSharedDir === undefined) delete process.env.TOKEN_MONITOR_SHARED_DIR;
+    else process.env.TOKEN_MONITOR_SHARED_DIR = originalSharedDir;
+    if (originalWindowsHome === undefined) delete process.env.TOKEN_MONITOR_WINDOWS_HOME;
+    else process.env.TOKEN_MONITOR_WINDOWS_HOME = originalWindowsHome;
+    delete require.cache[collectorPath];
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('watch-descriptor exhaustion degrades to polling and stays there', async () => {
   const tmp = withTmpHome([path.join('.claude', 'projects')]);
   const originalHomedir = os.homedir;

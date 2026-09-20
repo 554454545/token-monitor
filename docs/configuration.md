@@ -38,6 +38,7 @@ TOKEN_MONITOR_SECRET=                # shared secret; must match the hub
 TOKEN_MONITOR_DEVICE_ID=             # optional — defaults to the hostname
 TOKEN_MONITOR_SYNC_UPLOAD_INTERVAL_MS= # optional — 0/live, 600000/10min, 1200000/20min, 1800000/30min
 TOKEN_MONITOR_CLIENTS=               # optional — defaults to all supported tools; empty disables tracking
+TOKEN_MONITOR_WINDOWS_HOME=          # WSL only — auto-detects /mnt/c/Users/*; set a path or "off"
 TOKEN_MONITOR_PROJECTS_ENABLED=      # optional — defaults on; 0 stops collecting project metadata
 TOKEN_MONITOR_HISTORY_ENABLED=       # optional — defaults on; 0 skips trend history
 TOKEN_MONITOR_SESSION_USAGE_ARCHIVE_ENABLED= # optional — defaults on; 0 stops archiving deleted-session usage
@@ -62,6 +63,15 @@ TOKEN_MONITOR_WORKBUDDY_LOCALE=       # headless only — en or zh
 Provider credentials (Grok, DeepSeek, Minimax, Copilot, GLM / GLM Team, Volcengine, Qoder, Command Code, WorkBuddy, Ollama, Kimi, Alibaba Token Plan, …) and proxy settings live in the same file. **`.env.example` is the complete, authoritative list** — start from it rather than copying keys by hand, since it stays in sync with the code. The desktop widget automatically reads the session owned by the local WorkBuddy app when that provider is enabled; the WorkBuddy token fields above remain only for headless/CLI deployments.
 
 The widget reads most settings as first-run defaults. WorkBuddy follows the same provider checkbox as other auto-detected integrations on macOS and Windows; Linux local-app monitoring is unsupported. Desktop users do not copy a token, and the WorkBuddy token fields above apply only to the headless agent/CLI. The agent and hub take a CLI flag over an env var over the built-in default.
+
+On WSL, the widget also discovers supported session roots in mounted Windows
+profiles (for example Windows Codex under `/mnt/c/Users/<user>/.codex`) and
+scans them through the same widget. Set `TOKEN_MONITOR_WINDOWS_HOME` to an
+explicit mounted profile when automatic discovery is unsuitable, or to `off`
+to disable the interoperability scan. Mounted Windows roots are handled as
+Tokscale extra roots; live databases that cannot be read safely across the WSL
+mount still require a native Windows process or a headless agent in that
+environment.
 
 One-shot run (collect once and exit — useful for cron / launchd):
 

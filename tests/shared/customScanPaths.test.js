@@ -7,8 +7,10 @@ const {
   CUSTOM_SCAN_PATH_LIMIT_ERRORS,
   CUSTOM_SCAN_CLIENT_IDS,
   customScanPathLimitError,
+  effectiveCustomScanPaths,
   normalizeCustomScanPaths,
-  tokscaleExtraDirsEnv
+  tokscaleExtraDirsEnv,
+  windowsInteropScanPaths
 } = require('../../src/shared/customScanPaths');
 
 function paths(prefix, count) {
@@ -116,4 +118,39 @@ test('umbrella custom directories use each source without double-scanning shared
       'kilocode:/var/data/kilo-tasks'
     ].join(',')
   );
+});
+
+test('WSL discovers Windows Codex and VS Code roots for one combined scan', () => {
+  const home = '/mnt/c/Users/Administrator';
+  const existing = new Set([
+    `${home}/.codex/sessions`,
+    `${home}/.codex/archived_sessions`,
+    `${home}/AppData/Roaming/Code/User/workspaceStorage`
+  ]);
+  const discovered = windowsInteropScanPaths({
+    platform: 'linux',
+    env: {},
+    readdirSync: () => [{ name: 'Administrator', isDirectory: () => true }],
+    existsSync: (entry) => existing.has(entry)
+  });
+  assert.deepEqual(discovered, {
+    codex: [`${home}/.codex/sessions`, `${home}/.codex/archived_sessions`],
+    copilot: [`${home}/AppData/Roaming/Code/User/workspaceStorage`]
+  });
+  assert.deepEqual(effectiveCustomScanPaths({}, {
+    platform: 'linux',
+    windowsInterop: true,
+    env: {},
+    readdirSync: () => [{ name: 'Administrator', isDirectory: () => true }],
+    existsSync: (entry) => existing.has(entry)
+  }), discovered);
+});
+
+test('WSL Windows-home discovery can be disabled', () => {
+  assert.deepEqual(windowsInteropScanPaths({
+    platform: 'linux',
+    env: { TOKEN_MONITOR_WINDOWS_HOME: 'off' },
+    readdirSync: () => [{ name: 'Administrator', isDirectory: () => true }],
+    existsSync: () => true
+  }), {});
 });

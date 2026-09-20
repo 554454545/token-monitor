@@ -130,6 +130,7 @@ Qoder CN 的 Token 用量来自应用本地 SQLite 数据库，而非 API ——
 - **成本与币别**：Token 数量旁附带成本；可用 USD、TWD、HKD 或 CNY 显示，汇率每日自动更新，也可在设置中手动覆写
 - **自定义扫描路径**：session 不在默认位置时，可为个别工具加入额外的文件夹
 - **WSL 用量（Windows）**：运行中 WSL 发行版里的文件型用量会自动识别，约每 5 分钟并入总量；OpenCode、Hermes 等 SQLite 来源可能需要按照[指南](docs/wsl-sqlite-setup.zh-CN.md)在 WSL 内运行 headless agent
+- **WSL 单窗口跨环境扫描**：在 WSL 中运行的小部件会自动发现已挂载的 Windows 用户目录，并合并可读取的 Codex、VS Code 扩展 session；可用 `TOKEN_MONITOR_WINDOWS_HOME` 指定目录，或设为 `off` 关闭
 
 ### 额度、趋势与导出
 

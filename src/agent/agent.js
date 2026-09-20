@@ -75,6 +75,7 @@ const usageOptions = {
   deviceId,
   agentVersion: appVersion(),
   agentRuntime: 'headless-agent',
+  windowsInterop: true,
   projectsEnabled,
   historyEnabled,
   historyIntervalMs: normalizeHistoryIntervalMs(process.env.TOKEN_MONITOR_HISTORY_INTERVAL_MS),
