@@ -1166,23 +1166,17 @@ test('Copilot renders monthly Premium and Chat quotas as billing windows', () =>
   assert.match(renderProviderWindows, /limitWindowNode\(billing\?\.label \|\| 'Monthly', billing, color, 0\.68\)/);
 });
 
-test('Codex renders Monthly quota and manual reset credits below rolling windows', () => {
+test('Codex keeps quota windows below a count-only reset credit header', () => {
   const app = readRendererFile('app.js');
   const styles = readRendererFile('styles.css');
   const main = fs.readFileSync(path.join(rendererDir, '..', 'main.js'), 'utf8');
   const renderProviderWindows = functionBody(app, 'renderProviderWindows', 'renderLimitProviderRow');
   const codexAdditionalWindowLabel = functionBody(app, 'codexAdditionalWindowLabel', 'antigravityQuotaGroups');
-  const resetCreditsValue = functionBody(app, 'formatCodexResetCreditsValue', 'codexResetCreditExpirationDates');
-  const resetCreditExpirationDates = functionBody(app, 'codexResetCreditExpirationDates', 'codexResetCreditExpiryLabel');
-  const resetCreditExpiryLabel = functionBody(app, 'codexResetCreditExpiryLabel', 'codexResetCreditExpiryDetailLabel');
-  const resetCreditExpiryDetailLabel = functionBody(app, 'codexResetCreditExpiryDetailLabel', 'expiryDateLabel');
-  const resetCreditExpiryDateLabel = functionBody(app, 'expiryDateLabel', 'limitDetailTooltipShouldHoldRender');
+  const resetCreditsValue = functionBody(app, 'formatCodexResetCreditsValue', 'expiryDateLabel');
   // Sliced to the next function, not to `renderLimitProviderHead`: the wider slice
   // swept in the shared tooltip builder, so these assertions passed on code that
   // isn't Codex's.
   const codexResetCreditsNode = functionBody(app, 'codexResetCreditsNode', 'providerSpendEntries');
-  const limitDetailTooltipShouldHoldRender = functionBody(app, 'limitDetailTooltipShouldHoldRender', 'flushPendingLimitDetailTooltipRender');
-  const renderLimits = functionBody(app, 'renderLimits', 'serviceStatusLabel');
 
   assert.match(renderProviderWindows, /provider\.provider === 'codex'/);
   assert.match(renderProviderWindows, /const session = codexCanonicalWindow\(provider, 'session'\);/);
@@ -1206,55 +1200,57 @@ test('Codex renders Monthly quota and manual reset credits below rolling windows
   assert.match(codexAdditionalWindowLabel, /codexAdditionalWindowPeriodLabel\(window\)/);
   assert.match(codexAdditionalWindowLabel, /minutes % 60 === 0/);
   assert.match(styles, /\.limit-window-text span:first-child \{[\s\S]*text-overflow: ellipsis;/);
-  assert.match(renderProviderWindows, /const resetNode = codexResetCreditsNode\(provider\.resetCredits\);/);
-  assert.doesNotMatch(renderProviderWindows, /limitWindowNode\('Reset credits'/);
+  const head = functionBody(app, 'renderLimitProviderHead', 'renderProviderWindows');
+  assert.doesNotMatch(renderProviderWindows, /codexResetCreditsNode/);
+  assert.match(head, /id === 'codex' && !options.hideMeta/);
+  assert.match(head, /head.append\(resetNode\)/);
+  assert.match(head, /limit-head-with-reset-credits/);
+  assert.match(codexResetCreditsNode, /item.textContent = valueText/);
+  assert.doesNotMatch(codexResetCreditsNode, /expir|timeline|tooltip|limit-window/i);
   assert.match(resetCreditsValue, /if \(count <= 0\) return '';/);
-  assert.match(resetCreditsValue, /return `\$\{count\} reset\$\{count === 1 \? '' : 's'\}`;/);
-  assert.match(resetCreditExpirationDates, /resetCredits\?\.expirations/);
-  assert.match(resetCreditExpirationDates, /\.sort\(\(a, b\) => a\.getTime\(\) - b\.getTime\(\)\)/);
-  assert.match(resetCreditExpirationDates, /resetCredits\?\.nextExpiresAt/);
-  assert.match(resetCreditExpiryLabel, /diffMs <= 0 \? 'now'/);
-  assert.match(resetCreditExpiryLabel, /formatDuration\(diffMs\)/);
-  assert.match(resetCreditExpiryDetailLabel, /`Expires in \$\{formatDuration\(diffMs\)\}`/);
-  assert.match(
-    resetCreditExpiryDateLabel,
-    /Intl\.DateTimeFormat\(currentLocale\(\), \{\s*month: 'numeric',\s*day: 'numeric',\s*hour: 'numeric',\s*minute: '2-digit'\s*\}\)/
-  );
-  assert.match(codexResetCreditsNode, /limit-reset-credits/);
-  assert.match(codexResetCreditsNode, /limit-reset-credits-line/);
-  assert.match(codexResetCreditsNode, /limit-reset-credits-timeline/);
-  assert.match(codexResetCreditsNode, /limit-reset-credits-time/);
-  assert.match(codexResetCreditsNode, /limit-reset-credits-separator/);
-  assert.match(codexResetCreditsNode, /separator\.textContent = '·'/);
-  assert.match(codexResetCreditsNode, /expirationDates\.slice\(0, 3\)\.map\(codexResetCreditExpiryLabel\)/);
-  assert.match(codexResetCreditsNode, /hiddenExpirationCount = expirationDates\.length - summaryParts\.length/);
-  assert.match(codexResetCreditsNode, /summaryParts\.push\(`\+\$\{hiddenExpirationCount\}`\)/);
-  // The expiry tooltip is the shared builder, not a second copy of its
-  // hover/focus wiring that has to be kept in step by hand. It is useful for a
-  // single reset too, not only when several dates are present.
-  assert.match(codexResetCreditsNode, /expiryGroup\.append\(timeline\);\s*if \(expirationDates\.length > 0\) \{/);
-  assert.match(
-    codexResetCreditsNode,
-    /expirationDates\.map\(\(date\) => \[expiryDateLabel\(date\), codexResetCreditExpiryLabel\(date\)\]\)/
-  );
-  assert.match(codexResetCreditsNode, /`Reset \$\{index \+ 1\}: \$\{codexResetCreditExpiryDetailLabel\(date\)\}`/);
-  assert.doesNotMatch(codexResetCreditsNode, /addEventListener/);
-  assert.doesNotMatch(codexResetCreditsNode, /state\.limitDetailTooltip/);
-  assert.match(codexResetCreditsNode, /formatCodexResetCreditsValue\(resetCredits\)/);
-  assert.match(codexResetCreditsNode, /aria-label/);
-  assert.match(limitDetailTooltipShouldHoldRender, /state\.limitDetailTooltipActive/);
-  assert.match(renderLimits, /const holdLimitDetailTooltipRender = limitDetailTooltipShouldHoldRender\(\);/);
-  assert.match(renderLimits, /if \(holdLimitDetailTooltipRender \|\| holdCodexSwitchPopoverRender\)/);
-  assert.match(styles, /\.limit-reset-credits\s*\{[^}]*min-height: 11px;[^}]*font-size: 9px;/s);
-  assert.match(styles, /\.limit-reset-credits-line\s*\{[^}]*justify-content: space-between;/s);
-  assert.match(styles, /\.limit-reset-credits-expiry-group\s*\{[^}]*flex: 0 0 auto;/s);
-  assert.match(styles, /\.limit-reset-credits-timeline\s*\{[^}]*opacity: 0\.66;/s);
-  assert.match(styles, /\.limit-reset-credits-time\s*\{[^}]*gap: 3px;/s);
-  assert.match(styles, /\.limit-detail-tooltip-wrap\s*\{[^}]*position: relative;/s);
-  assert.match(styles, /\.limit-detail-tooltip\s*\{[^}]*position: absolute;[^}]*width: max-content;[^}]*grid-template-columns: max-content max-content;/s);
-  assert.match(styles, /\.limit-detail-tooltip-row\s*\{[^}]*display: contents;/s);
-  assert.match(styles, /\.limit-detail-tooltip-row span:last-child\s*\{[^}]*text-align: right;/s);
-  assert.doesNotMatch(styles, /\.limit-reset-credits-clock/);
+  assert.match(styles, /\.limit-reset-credits\s*\{[^}]*grid-column: 2;[^}]*grid-row: 2;/s);
+  assert.match(styles, /\.limit-head-with-reset-credits \.limit-meta \{ grid-column: 1; grid-row: 2; \}/);
+});
+
+test('Codex reset counts stay account-scoped in the header without expiry text', () => {
+  const app = readRendererFile('app.js');
+  const functions = [
+    functionBody(app, 'formatCodexResetCreditsValue', 'expiryDateLabel'),
+    functionBody(app, 'codexResetCreditsNode', 'providerSpendEntries'),
+    functionBody(app, 'renderLimitProviderHead', 'renderProviderWindows')
+  ].join('\n');
+  const makeNode = () => ({
+    children: [], textContent: '', className: '',
+    classList: { add() {} },
+    append(...nodes) { this.children.push(...nodes); },
+    setAttribute() {}
+  });
+  const context = {
+    document: { createElement: makeNode, createTextNode: (text) => text },
+    window: {},
+    codexAccountControl: { render: ({ titleNode }) => titleNode },
+    codexAccountAlias: () => '',
+    limitAccountEmailsHidden: () => true,
+    t: () => 'Account',
+    limitProviderProvenance: () => '',
+    limitProviderMeta: () => 'Updated: 1 minute ago',
+    limitProviderPlan: (provider) => provider.accountLabel,
+    decoratePlanWithSubscription: (plan) => plan
+  };
+  vm.runInNewContext(functions, context);
+  const render = (count, options = {}) => context.renderLimitProviderHead('codex', 'Account', {
+    provider: 'codex', status: 'ok', accountLabel: 'Plus',
+    resetCredits: { availableCount: count, nextExpiresAt: '2030-01-01T00:00:00Z' }
+  }, 'blue', { showIcon: false, ...options });
+  for (const count of [1, 2, 5]) {
+    const head = render(count);
+    assert.equal(head.children[1].textContent, 'Plus');
+    assert.equal(head.children[2].className, 'limit-reset-credits');
+    assert.equal(head.children[2].textContent, `${count} reset${count === 1 ? '' : 's'}`);
+    assert.equal(head.children[2].children.length, 0);
+  }
+  for (const count of [0, -1, undefined, 'invalid']) assert.equal(render(count).children.length, 2);
+  assert.equal(render(2, { hideMeta: true }).children.length, 2);
 });
 
 test('Codex additional quota labels omit a redundant period unless one name has multiple windows', () => {

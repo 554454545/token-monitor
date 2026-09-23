@@ -46,7 +46,7 @@ test('maps window behavior modes to window flags', () => {
   assert.deepEqual(describeWindowBehavior({ windowBehavior: 'desktop' }), {
     mode: 'desktop',
     alwaysOnTop: false,
-    draggable: false,
+    draggable: true,
     resizable: false,
     focusable: true,
     mousePassthrough: false,

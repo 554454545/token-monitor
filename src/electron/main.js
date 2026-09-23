@@ -23,6 +23,7 @@ const { exportFileSet, exportSignature, EXPORT_FILENAMES } = require('../shared/
 const { createDefaultTrayLayout, normalizeTrayLayout } = require('../shared/trayLayout');
 const fontSettingsApi = require('../shared/fontSettings');
 const motionPreferenceApi = require('./motionPreference');
+const { clearBackgroundImage, getBackgroundImage, importBackgroundImage } = require('./backgroundImage');
 const { normalizeCodexAccountAliases } = require('../shared/accountDisplayPreferences');
 const { RESIZE_EDGES, resizeBounds } = require('./windowResize');
 const { createClientSourceIpcHandlers } = require('./clientSourceIpc');
@@ -342,6 +343,7 @@ const {
   FLOATING_BUBBLE_HANDLE_HEIGHT,
   FLOATING_BUBBLE_HANDLE_WIDTH,
   canUseFloatingBubble,
+  clampBounds,
   collapsedFloatingBubbleBounds,
   dragFloatingBubbleBounds,
   expandedFloatingBubbleBounds,
@@ -625,6 +627,7 @@ function defaultSettings() {
     trayCustomLayout: createDefaultTrayLayout(),
     showTrayProviderBadge: false,
     windowToggleShortcut: '',
+    nativeShortcutsEnabled: false,
     currency: normalizeCurrency(process.env.TOKEN_MONITOR_CURRENCY || 'USD'),
     currencyRates: {},
     startAtLogin: false,
@@ -2147,7 +2150,7 @@ function restoredBounds() {
 let persistBoundsTimer = null;
 let windowBoundsCheckpointTimer = null;
 let floatingBubbleAutoCollapseTimer = null;
-const floatingBubbleState = { collapsed: false, side: null, collapsedBounds: null, expandedBounds: null, suppressNextCollapse: false, contentSize: null };
+const floatingBubbleState = { collapsed: false, side: null, collapsedBounds: null, expandedBounds: null, suppressNextCollapse: false, contentSize: null, minimizedToEdge: false };
 let mainWindowChrome = { collapsedFloatingBubble: false };
 
 function stopPersistBoundsTimer() {
@@ -2171,9 +2174,10 @@ function stopWindowBoundsCheckpoints() {
 
 function floatingBubblePayload() {
   return {
-    enabled: canUseFloatingBubble(settings),
+    enabled: canUseFloatingBubble(settings) || floatingBubbleState.minimizedToEdge,
     collapsed: floatingBubbleState.collapsed,
-    side: floatingBubbleState.side
+    side: floatingBubbleState.side,
+    minimizedToEdge: floatingBubbleState.minimizedToEdge
   };
 }
 
@@ -2290,7 +2294,7 @@ function persistWindowBounds(next) {
   return true;
 }
 
-function collapseFloatingBubble(plan) {
+function collapseFloatingBubble(plan, options = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   stopFloatingBubbleAutoCollapseTimer();
   const { side, expandedBounds, collapsedBounds } = plan || {};
@@ -2299,7 +2303,8 @@ function collapseFloatingBubble(plan) {
   floatingBubbleState.side = side;
   floatingBubbleState.collapsedBounds = collapsedBounds;
   floatingBubbleState.expandedBounds = expandedBounds;
-  settings.floatingBubbleBounds = collapsedBounds;
+  floatingBubbleState.minimizedToEdge = options.minimizedToEdge === true;
+  if (!floatingBubbleState.minimizedToEdge) settings.floatingBubbleBounds = collapsedBounds;
   applyNativeMaterial();
   if (process.platform === 'win32') {
     persistWindowBounds(expandedBounds);
@@ -2318,25 +2323,28 @@ function collapseFloatingBubble(plan) {
   return true;
 }
 
-function maybeCollapseFloatingBubble(bounds) {
+function maybeCollapseFloatingBubble(bounds, options = {}) {
   // The display comes from where the window actually sits, but the bounds the
   // plan remembers as "expanded" must be the normal ones: collapsing a
   // maximized window would otherwise persist the whole screen as its size.
   const display = displayForBounds(bounds);
   if (!display) return false;
   const collapsedArea = collapsedAreaForDisplay(display);
+  const minimizedToEdge = options.minimizedToEdge === true;
   const plan = floatingBubbleCollapsePlan(expandedBoundsForCollapse(mainWindow, bounds), display.workArea, settings, {
     collapsed: floatingBubbleState.collapsed,
-    suppressNextCollapse: floatingBubbleState.suppressNextCollapse,
+    suppressNextCollapse: !minimizedToEdge && floatingBubbleState.suppressNextCollapse,
+    force: minimizedToEdge,
     collapsedArea,
     collapsedMargin: collapsedMargin(),
-    collapsedBounds: settings?.floatingBubbleBounds || floatingBubbleState.collapsedBounds,
-    handleWidth: floatingBubbleState.contentSize?.width,
-    handleHeight: floatingBubbleState.contentSize?.height
+    collapsedBounds: minimizedToEdge ? null : settings?.floatingBubbleBounds || floatingBubbleState.collapsedBounds,
+    dockToScreenEdge: minimizedToEdge,
+    handleWidth: minimizedToEdge ? 34 : floatingBubbleState.contentSize?.width,
+    handleHeight: minimizedToEdge ? 34 : floatingBubbleState.contentSize?.height
   });
   floatingBubbleState.suppressNextCollapse = false;
   if (!plan) return false;
-  return collapseFloatingBubble(plan);
+  return collapseFloatingBubble(plan, { minimizedToEdge });
 }
 
 function expandFloatingBubble(options = {}) {
@@ -2345,10 +2353,13 @@ function expandFloatingBubble(options = {}) {
   const current = mainWindow.getBounds();
   const display = displayForBounds(floatingBubbleState.expandedBounds || current) || displayForBounds(current);
   const target = display
-    ? expandedFloatingBubbleBounds(current, display.workArea, floatingBubbleState.expandedBounds)
+    ? (floatingBubbleState.minimizedToEdge
+      ? clampBounds(floatingBubbleState.expandedBounds, display.workArea)
+      : expandedFloatingBubbleBounds(current, display.workArea, floatingBubbleState.expandedBounds))
     : floatingBubbleState.expandedBounds;
   floatingBubbleState.collapsed = false;
   floatingBubbleState.side = null;
+  floatingBubbleState.minimizedToEdge = false;
   floatingBubbleState.collapsedBounds = current;
   floatingBubbleState.expandedBounds = target;
   applyNativeMaterial();
@@ -2392,7 +2403,7 @@ function scheduleFloatingBubbleAutoCollapse() {
 }
 
 function syncFloatingBubbleAvailability() {
-  if (!canUseFloatingBubble(settings)) {
+  if (!canUseFloatingBubble(settings) && !floatingBubbleState.minimizedToEdge) {
     if (floatingBubbleState.collapsed) expandFloatingBubble({ focus: false });
     else {
       floatingBubbleState.side = null;
@@ -2695,6 +2706,7 @@ function readSettings() {
     merged.trayCustomLayout = normalizeTrayLayout(merged.trayCustomLayout);
     merged.showTrayProviderBadge = parseBoolean(merged.showTrayProviderBadge, false);
     merged.windowToggleShortcut = normalizeWindowToggleShortcut(merged.windowToggleShortcut);
+    merged.nativeShortcutsEnabled = parseBoolean(merged.nativeShortcutsEnabled, false);
     // 如果设置了 opencodeCookie 但没有 profiles，自动迁移
     if (merged.opencodeCookie && Object.keys(merged.opencodeProfiles || {}).length === 0) {
       merged.opencodeProfiles = { default: { cookie: merged.opencodeCookie, enabled: true } };
@@ -6712,7 +6724,7 @@ function createWindow(boundsOverride, options = {}) {
   });
   win.on('blur', () => {
     nudgeTaskbarZOrder();
-    if (settings?.trayMode && !suppressNextBlurHide && !quitRequested) hidePopover();
+    if (settings?.trayMode && !floatingBubbleState.minimizedToEdge && !suppressNextBlurHide && !quitRequested) hidePopover();
     else if (!quitRequested) scheduleFloatingBubbleAutoCollapse();
   });
   win.on('resized', () => { persistBoundsSoon(); syncTaskbarZOrder(); });
@@ -6784,13 +6796,23 @@ function createWindow(boundsOverride, options = {}) {
 
 function handleZoomShortcut(event, input) {
   if (input.type !== 'keyDown') return;
-  const key = input.key;
-  if (key === 'Escape' && !input.control && !input.meta && !input.alt && !input.shift && canUseFloatingBubble(settings)) {
+  const key = String(input.key || input.code || '').toLowerCase();
+  const modifiers = Array.isArray(input.modifiers) ? input.modifiers : [];
+  const control = input.control === true || modifiers.includes('control') || modifiers.includes('ctrl');
+  const alt = input.alt === true || modifiers.includes('alt');
+  const meta = input.meta === true || modifiers.includes('meta');
+  const shift = input.shift === true || modifiers.includes('shift');
+  if ((key === 'w' || key === 'q' || key === 'keyw' || key === 'keyq') && control && !alt && !meta && !shift && settings?.nativeShortcutsEnabled !== true) {
+    event.preventDefault();
+    return;
+  }
+  if (settings?.nativeShortcutsEnabled !== true) return;
+  if (key === 'escape' && !control && !meta && !alt && !shift && canUseFloatingBubble(settings)) {
     event.preventDefault();
     maybeCollapseFloatingBubble(mainWindow.getBounds());
     return;
   }
-  if (!(input.control || input.meta)) return;
+  if (!(control || meta)) return;
   if (key === '=' || key === '+') { event.preventDefault(); adjustZoom(ZOOM_LIMITS.step); }
   else if (key === '-' || key === '_') { event.preventDefault(); adjustZoom(-ZOOM_LIMITS.step); }
   else if (key === '0') { event.preventDefault(); setZoomFactor(1); }
@@ -6948,6 +6970,7 @@ function rebuildWindow() {
   const old = mainWindow;
   floatingBubbleState.collapsed = false;
   floatingBubbleState.side = null;
+  floatingBubbleState.minimizedToEdge = false;
   floatingBubbleState.collapsedBounds = null;
   floatingBubbleState.expandedBounds = null;
   floatingBubbleState.suppressNextCollapse = false;
@@ -7023,6 +7046,19 @@ app.whenReady().then(() => {
   syncEdgeDock();
   setTimeout(() => { checkTokscaleNpm({ silent: true }); }, 2000);
   ipcMain.handle('settings:get', () => settingsForRenderer());
+  ipcMain.handle('appearance:getBackgroundImage', () => getBackgroundImage(app.getPath('userData')));
+  ipcMain.handle('appearance:chooseBackgroundImage', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return { dataUrl: await importBackgroundImage(result.filePaths[0], app.getPath('userData'), nativeImage) };
+  });
+  ipcMain.handle('appearance:clearBackgroundImage', async () => {
+    await clearBackgroundImage(app.getPath('userData'));
+    return true;
+  });
 
   ipcMain.handle('subscriptions:adoptOrphans', async () => {
     try {
@@ -7269,6 +7305,7 @@ app.whenReady().then(() => {
       trayContent: normalizeTrayContent(patch.trayContent ?? settings.trayContent),
       trayCustomLayout: normalizeTrayLayout(patch.trayCustomLayout ?? settings.trayCustomLayout),
       showTrayProviderBadge: parseBoolean(patch.showTrayProviderBadge ?? settings.showTrayProviderBadge, false),
+      nativeShortcutsEnabled: parseBoolean(patch.nativeShortcutsEnabled ?? settings.nativeShortcutsEnabled, false),
       floatingBubbleContent: normalizeTrayContent(patch.floatingBubbleContent ?? settings.floatingBubbleContent, 'icon'),
       floatingBubbleCustomLayout: normalizeTrayLayout(patch.floatingBubbleCustomLayout ?? settings.floatingBubbleCustomLayout),
       windowToggleShortcut: normalizeWindowToggleShortcut(patch.windowToggleShortcut ?? settings.windowToggleShortcut),
@@ -7486,7 +7523,7 @@ app.whenReady().then(() => {
     return maybeCollapseFloatingBubble(bounds);
   });
   ipcMain.handle('floatingBubble:setCollapsedSize', (_event, size) => {
-    if (!size || !canUseFloatingBubble(settings)) return false;
+    if (!size || (!canUseFloatingBubble(settings) && !floatingBubbleState.minimizedToEdge)) return false;
     const width = Math.round(Number(size.width));
     const height = Math.round(Number(size.height));
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return false;
@@ -7509,8 +7546,10 @@ app.whenReady().then(() => {
     applyCollapsedFloatingBubbleLimits(target);
     mainWindow.setBounds(target);
     floatingBubbleState.collapsedBounds = target;
-    settings.floatingBubbleBounds = target;
-    saveSettings();
+    if (!floatingBubbleState.minimizedToEdge) {
+      settings.floatingBubbleBounds = target;
+      saveSettings();
+    }
     return true;
   });
   ipcMain.handle('floatingBubble:move', (_event, delta) => {
@@ -7525,13 +7564,18 @@ app.whenReady().then(() => {
     const cursor = hasDragOffset && typeof screen.getCursorScreenPoint === 'function'
       ? screen.getCursorScreenPoint()
       : null;
-    const display = (cursor && displayForPoint(cursor)) || displayForBounds(current);
+    const display = floatingBubbleState.minimizedToEdge
+      ? displayForBounds(current)
+      : (cursor && displayForPoint(cursor)) || displayForBounds(current);
     if (!display) return false;
     const collapsedArea = collapsedAreaForDisplay(display);
     const margin = collapsedMargin();
-    const target = cursor
+    const moved = cursor
       ? dragFloatingBubbleBounds(current, collapsedArea, cursor, delta, margin)
       : moveFloatingBubbleBounds(current, collapsedArea, delta, margin);
+    const target = moved && floatingBubbleState.minimizedToEdge
+      ? { ...moved, x: collapsedArea.x + collapsedArea.width - moved.width }
+      : moved;
     if (!target) return false;
     floatingBubbleState.collapsedBounds = target;
     floatingBubbleState.side = floatingBubbleSide(target, collapsedArea);
@@ -8709,12 +8753,13 @@ app.whenReady().then(() => {
     return { ok: true };
   });
   ipcMain.on('window:minimize', () => {
-    if (settings?.trayMode) hidePopover();
-    else mainWindow?.minimize();
+    if (!mainWindow || mainWindow.isDestroyed() ||
+      !maybeCollapseFloatingBubble(mainWindow.getBounds(), { minimizedToEdge: true })) mainWindow?.minimize();
   });
   ipcMain.on('window:close', () => {
-    if (settings?.trayMode) hidePopover();
-    else mainWindow?.close();
+    // The title-bar X is an explicit quit action. Hiding here leaves the old
+    // collector alive, so the next launch reuses the stale process and code.
+    requestAppQuit();
   });
   ipcMain.handle('dashboard:open', () => { createDashboardWindow(); return true; });
   ipcMain.handle('dashboard:getHistory', (_event, options) => getDashboardHistory(options));

@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const {
   canUseFloatingBubble,
+  clampBounds,
   collapsedFloatingBubbleBounds,
   dragFloatingBubbleBounds,
   expandedFloatingBubbleBounds,
@@ -212,6 +213,44 @@ test('floatingBubbleCollapsePlan can collapse from the current position without 
       expandedBounds: { x: 120, y: 120, width: 360, height: 520 },
       collapsedBounds: { x: 120, y: 363, width: 18, height: 34 }
     }
+  );
+});
+
+test('minimize collapse docks an arrow to the right screen edge without reusing bubble position', () => {
+  const settings = { floatingBubbleEnabled: true, windowBehavior: 'floating' };
+  const left = floatingBubbleCollapsePlan(
+    { x: 120, y: 120, width: 360, height: 520 },
+    workArea,
+    settings,
+    { dockToScreenEdge: true, handleWidth: 34, handleHeight: 34, collapsedBounds: { x: 600, y: 300 } }
+  );
+  assert.deepEqual(left, {
+    side: 'right',
+    expandedBounds: { x: 120, y: 120, width: 360, height: 520 },
+    collapsedBounds: { x: 1406, y: 363, width: 34, height: 34 }
+  });
+  const right = floatingBubbleCollapsePlan(
+    { x: 1000, y: 120, width: 360, height: 520 },
+    workArea,
+    settings,
+    { dockToScreenEdge: true, handleWidth: 34, handleHeight: 34 }
+  );
+  assert.deepEqual(right.collapsedBounds, { x: 1406, y: 363, width: 34, height: 34 });
+  assert.equal(right.side, 'right');
+  assert.deepEqual(
+    floatingBubbleInitialRendererQuery({ collapsed: true, side: 'right', minimizedToEdge: true }, true),
+    { period: 'today', breakdown: 'tool', floatingBubbleSide: 'right', floatingBubbleMinimized: '1' }
+  );
+});
+
+test('edge-minimized restore can clamp the saved full window bounds', () => {
+  assert.deepEqual(
+    clampBounds({ x: 120, y: 74, width: 355, height: 477 }, workArea),
+    { x: 120, y: 74, width: 355, height: 477 }
+  );
+  assert.deepEqual(
+    clampBounds({ x: -300, y: 74, width: 355, height: 477 }, workArea),
+    { x: 8, y: 74, width: 355, height: 477 }
   );
 });
 
@@ -433,6 +472,21 @@ test('generated floating bubble images use a device-scale-aware bitmap', () => {
   assert.match(app, /window\.addEventListener\('resize',[\s\S]*refreshFloatingBubbleBitmapForDeviceScale\(\);/);
 });
 
+test('edge-minimized arrow advertises clickability on hover', () => {
+  const css = fs.readFileSync(stylesPath, 'utf8');
+  assert.match(cssBlock(css, '[.]floating-bubble-minimized-edge [.]floating-bubble-tab'), /cursor:\s*pointer;/);
+  assert.match(css, /\.floating-bubble-minimized-edge \.floating-bubble-tab:hover,[\s\S]*?background:\s*#1677ff;/);
+});
+
+test('edge-minimized arrow distinguishes click from vertical drag', () => {
+  const app = fs.readFileSync(appPath, 'utf8');
+  const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'main.js'), 'utf8');
+  assert.match(app, /state\.floatingBubble\.minimizedToEdge \? Math\.abs\(totalDy\)/);
+  assert.match(app, /if \(!drag\.moved\) window\.tokenMonitor\.expandFloatingBubble\?\.\(\);/);
+  assert.doesNotMatch(app, /floatingBubbleTab\.addEventListener\('click'/);
+  assert.match(main, /floatingBubbleState\.minimizedToEdge[\s\S]*?collapsedArea\.x \+ collapsedArea\.width - moved\.width/);
+});
+
 test('floatingBubbleCollapsePlan honors a custom handle size', () => {
   const settings = { floatingBubbleEnabled: true };
   const workArea = { x: 0, y: 0, width: 1000, height: 800 };
@@ -443,4 +497,19 @@ test('floatingBubbleCollapsePlan honors a custom handle size', () => {
   });
   assert.equal(plan.collapsedBounds.width, 80);
   assert.equal(plan.collapsedBounds.height, 32); // normalizeHandleSize floors height at 32
+});
+
+test('explicit minimize docks from any window mode without enabling automatic collapse', () => {
+  for (const windowBehavior of ['floating', 'normal', 'desktop']) {
+    const settings = { floatingBubbleEnabled: false, windowBehavior, trayMode: true };
+    assert.equal(canUseFloatingBubble(settings), false);
+    assert.equal(floatingBubbleCollapsePlan(
+      { x: 120, y: 120, width: 360, height: 520 }, workArea, settings
+    ), null);
+    const plan = floatingBubbleCollapsePlan(
+      { x: 120, y: 120, width: 360, height: 520 }, workArea, settings,
+      { force: true, dockToScreenEdge: true, handleWidth: 34, handleHeight: 34 }
+    );
+    assert.deepEqual(plan?.collapsedBounds, { x: 1406, y: 363, width: 34, height: 34 });
+  }
 });

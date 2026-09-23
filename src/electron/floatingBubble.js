@@ -73,6 +73,7 @@ function floatingBubbleInitialRendererQuery(state = {}, options = false) {
     : null;
   const query = initialRendererViewStateQuery(optionObject?.viewState);
   if (side) query.floatingBubbleSide = side;
+  if (side && state.minimizedToEdge === true) query.floatingBubbleMinimized = '1';
   if (optionObject?.suppressInitialNumberAnimation === true) {
     query.suppressInitialNumberAnimation = '1';
   }
@@ -151,12 +152,19 @@ function expandedFloatingBubbleBounds(collapsedBounds, workArea, previousExpande
 }
 
 function floatingBubbleCollapsePlan(bounds, workArea, settings = {}, options = {}) {
-  if (options.suppressNextCollapse || options.collapsed || !canUseFloatingBubble(settings)) return null;
+  if (options.suppressNextCollapse || options.collapsed || (!options.force && !canUseFloatingBubble(settings))) return null;
   const expandedBounds = clampBounds(bounds, workArea);
   const collapsedArea = options.collapsedArea || workArea;
+  const dockSide = options.dockToScreenEdge ? 'right' : null;
+  const dockBounds = dockSide && expandedBounds ? {
+    x: dockSide === 'left'
+      ? Number(collapsedArea.x)
+      : Number(collapsedArea.x) + Number(collapsedArea.width) - Number(options.handleWidth || FLOATING_BUBBLE_HANDLE_WIDTH),
+    y: Number(expandedBounds.y) + (Number(expandedBounds.height) - Number(options.handleHeight || FLOATING_BUBBLE_HANDLE_HEIGHT)) / 2
+  } : options.collapsedBounds;
   const collapsedBounds = collapsedFloatingBubbleBounds(expandedBounds || bounds, collapsedArea, {
     margin: options.collapsedMargin,
-    collapsedBounds: options.collapsedBounds,
+    collapsedBounds: dockBounds,
     handleWidth: options.handleWidth,
     handleHeight: options.handleHeight
   });
@@ -202,6 +210,7 @@ module.exports = {
   FLOATING_BUBBLE_HANDLE_WIDTH,
   FLOATING_BUBBLE_MARGIN,
   canUseFloatingBubble,
+  clampBounds,
   collapsedFloatingBubbleBounds,
   dragFloatingBubbleBounds,
   expandedFloatingBubbleBounds,

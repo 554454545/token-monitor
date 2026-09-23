@@ -480,6 +480,9 @@ Object.assign(els, {
   mainSettingsSummary: document.getElementById('mainSettingsSummary'),
   windowSettingsSummary: document.getElementById('windowSettingsSummary'),
   appearanceSettingsSummary: document.getElementById('appearanceSettingsSummary'),
+  backgroundImageStatus: document.getElementById('backgroundImageStatus'),
+  chooseBackgroundImageButton: document.getElementById('chooseBackgroundImageButton'),
+  clearBackgroundImageButton: document.getElementById('clearBackgroundImageButton'),
   subscriptionsSettingsSummary: document.getElementById('subscriptionsSettingsSummary'),
   themePresetChips: document.getElementById('themePresetChips'),
   themeColorGrid: document.getElementById('themeColorGrid'),
@@ -1206,7 +1209,10 @@ function compactMonthLabel(label) {
     .format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1)));
 }
 function currentCurrency() { return currencyApi.normalizeCurrency(state.settings?.currency); }
-function formatCost(value) { return currencyApi.formatCurrencyFromUsd(value, currentCurrency()); }
+function formatCost(value) {
+  const currency = currentCurrency();
+  return `${currencyApi.formatCurrencyFromUsd(value, currency)} ${currency}`;
+}
 function applyEffectiveCurrencyRates() {
   if (state.settings?.currencyRatesEffective) currencyApi.configureRates(state.settings.currencyRatesEffective);
 }
@@ -4581,28 +4587,7 @@ function formatCodexResetCreditsValue(resetCredits) {
   return `${count} reset${count === 1 ? '' : 's'}`;
 }
 
-function codexResetCreditExpirationDates(resetCredits) {
-  const values = Array.isArray(resetCredits?.expirations) ? resetCredits.expirations : [];
-  const dates = values
-    .map((value) => new Date(value))
-    .filter((date) => !Number.isNaN(date.getTime()))
-    .sort((a, b) => a.getTime() - b.getTime());
-  if (dates.length > 0) return dates;
-  const fallback = resetCredits?.nextExpiresAt ? new Date(resetCredits.nextExpiresAt) : null;
-  return fallback && !Number.isNaN(fallback.getTime()) ? [fallback] : [];
-}
-
-function codexResetCreditExpiryLabel(date) {
-  const diffMs = date.getTime() - Date.now();
-  return diffMs <= 0 ? 'now' : formatDuration(diffMs);
-}
-
-function codexResetCreditExpiryDetailLabel(date) {
-  const diffMs = date.getTime() - Date.now();
-  return diffMs <= 0 ? 'Expires now' : `Expires in ${formatDuration(diffMs)}`;
-}
-
-// Shared by Codex reset credits and Claude prepaid grants.
+// Shared date formatting for Claude prepaid grants.
 function expiryDateLabel(date) {
   return new Intl.DateTimeFormat(currentLocale(), {
     month: 'numeric',
@@ -4626,52 +4611,10 @@ function flushPendingLimitDetailTooltipRender() {
 function codexResetCreditsNode(resetCredits) {
   const valueText = formatCodexResetCreditsValue(resetCredits);
   if (!valueText) return null;
-  const expirationDates = codexResetCreditExpirationDates(resetCredits);
   const item = document.createElement('div');
-  item.className = 'limit-window limit-window-wide limit-window-note limit-reset-credits';
-  const line = document.createElement('div');
-  line.className = 'limit-reset-credits-line';
-  const value = document.createElement('span');
-  value.className = 'limit-reset-credits-value';
-  value.textContent = valueText;
-  line.append(value);
-  if (expirationDates.length > 0) {
-    const expiryGroup = document.createElement('span');
-    expiryGroup.className = 'limit-reset-credits-expiry-group';
-    const timeline = document.createElement('span');
-    timeline.className = 'limit-reset-credits-timeline';
-    const summaryParts = expirationDates.slice(0, 3).map(codexResetCreditExpiryLabel);
-    const hiddenExpirationCount = expirationDates.length - summaryParts.length;
-    if (hiddenExpirationCount > 0) summaryParts.push(`+${hiddenExpirationCount}`);
-    summaryParts.forEach((text, index) => {
-      const time = document.createElement('span');
-      time.className = 'limit-reset-credits-time';
-      if (index > 0) {
-        const separator = document.createElement('span');
-        separator.className = 'limit-reset-credits-separator';
-        separator.textContent = '·';
-        separator.setAttribute('aria-hidden', 'true');
-        time.append(separator);
-      }
-      time.append(document.createTextNode(text));
-      timeline.append(time);
-    });
-    expiryGroup.append(timeline);
-    if (expirationDates.length > 0) {
-      // A date paired with a bare duration doesn't read as `<name>: <value>`, so
-      // the spoken label is supplied rather than derived from the cells. Keep
-      // this detail available for a single reset as well as multiple resets.
-      const infoNode = limitDetailInfoNode(
-        expirationDates.map((date) => [expiryDateLabel(date), codexResetCreditExpiryLabel(date)]),
-        '',
-        expirationDates.map((date, index) => `Reset ${index + 1}: ${codexResetCreditExpiryDetailLabel(date)}`).join(', ')
-      );
-      if (infoNode) expiryGroup.append(infoNode);
-    }
-    line.append(expiryGroup);
-  }
-  item.append(line);
-  item.setAttribute('aria-label', ['Reset credits', valueText, expirationDates.map(codexResetCreditExpiryDetailLabel).join(', ')].filter(Boolean).join(', '));
+  item.className = 'limit-reset-credits';
+  item.textContent = valueText;
+  item.setAttribute('aria-label', valueText);
   return item;
 }
 
@@ -5244,6 +5187,13 @@ function renderLimitProviderHead(id, label, provider, color, options = {}) {
   plan.className = 'limit-plan';
   plan.textContent = options.planText ?? limitProviderPlan(provider);
   head.append(titleBlock, decoratePlanWithSubscription(plan, provider));
+  if (id === 'codex' && !options.hideMeta) {
+    const resetNode = codexResetCreditsNode(provider.resetCredits);
+    if (resetNode) {
+      head.classList.add('limit-head-with-reset-credits');
+      head.append(resetNode);
+    }
+  }
   return head;
 }
 
@@ -5282,8 +5232,6 @@ function renderProviderWindows(provider, color) {
       additionalNode.classList.add('limit-window-wide');
       windows.append(additionalNode);
     }
-    const resetNode = codexResetCreditsNode(provider.resetCredits);
-    if (resetNode) windows.append(resetNode);
   } else if (provider.provider === 'cursor') {
     windows.classList.add('limit-windows-cursor');
     for (const quotaWindow of provider.windows || []) {
@@ -8999,7 +8947,72 @@ function applyAppearanceSettings(settings) {
   
   document.documentElement.classList.toggle('is-mac-legacy', isMacLegacyRadius);
   document.body.classList.toggle('is-mac-legacy', isMacLegacyRadius);
+  syncBackgroundImageStatus();
   updateTitleFit();
+}
+
+let backgroundImageActive = false;
+let backgroundImageBusy = false;
+let backgroundImageError = false;
+let backgroundImageRequest = 0;
+
+function syncBackgroundImageStatus() {
+  if (els.backgroundImageStatus) {
+    els.backgroundImageStatus.textContent = t(backgroundImageError
+      ? 'settings.appearance.backgroundImageError'
+      : backgroundImageActive
+        ? 'settings.appearance.backgroundImageActive'
+        : 'settings.appearance.backgroundImageNone');
+  }
+  els.clearBackgroundImageButton?.classList.toggle('hidden', !backgroundImageActive);
+  if (els.chooseBackgroundImageButton) els.chooseBackgroundImageButton.disabled = backgroundImageBusy;
+  if (els.clearBackgroundImageButton) els.clearBackgroundImageButton.disabled = backgroundImageBusy;
+}
+
+function applyBackgroundImage(dataUrl) {
+  backgroundImageActive = typeof dataUrl === 'string' && dataUrl.startsWith('data:image/png;base64,');
+  if (backgroundImageActive) {
+    els.shell.style.setProperty('--custom-background-image', `url("${dataUrl}")`);
+  } else {
+    els.shell.style.removeProperty('--custom-background-image');
+  }
+  els.shell.classList.toggle('has-custom-background', backgroundImageActive);
+  backgroundImageError = false;
+  syncBackgroundImageStatus();
+}
+
+async function loadBackgroundImage() {
+  const request = ++backgroundImageRequest;
+  try {
+    const dataUrl = await window.tokenMonitor.getBackgroundImage();
+    if (request === backgroundImageRequest) applyBackgroundImage(dataUrl);
+  } catch (_) {
+    if (request !== backgroundImageRequest) return;
+    backgroundImageError = true;
+    syncBackgroundImageStatus();
+  }
+}
+
+async function changeBackgroundImage(clear = false) {
+  if (backgroundImageBusy) return;
+  backgroundImageBusy = true;
+  backgroundImageRequest += 1;
+  syncBackgroundImageStatus();
+  try {
+    if (clear) {
+      await window.tokenMonitor.clearBackgroundImage();
+      applyBackgroundImage(null);
+    } else {
+      const result = await window.tokenMonitor.chooseBackgroundImage();
+      if (!result?.canceled && result?.dataUrl) applyBackgroundImage(result.dataUrl);
+    }
+  } catch (_) {
+    backgroundImageError = true;
+    syncBackgroundImageStatus();
+  } finally {
+    backgroundImageBusy = false;
+    syncBackgroundImageStatus();
+  }
 }
 
 const themePresetsApi = window.TokenMonitorThemePresets;
@@ -9314,6 +9327,8 @@ function syncWindowBehaviorControls() {
 }
 
 function syncWindowShortcutStatus() {
+  const nativeShortcutsInput = document.getElementById('nativeShortcutsInput');
+  if (nativeShortcutsInput) nativeShortcutsInput.checked = state.settings?.nativeShortcutsEnabled === true;
   const note = els.windowToggleShortcutNote;
   const value = els.windowToggleShortcutValue;
   const clearButton = els.windowToggleShortcutClearButton;
@@ -9385,7 +9400,7 @@ function handleWindowShortcutRecordKey(event) {
 function applyFloatingBubbleState(payload = {}, options = {}) {
   const wasCollapsed = state.floatingBubble.collapsed;
   const side = payload?.collapsed && ['left', 'right'].includes(payload.side) ? payload.side : null;
-  state.floatingBubble = { collapsed: Boolean(side), side };
+  state.floatingBubble = { collapsed: Boolean(side), side, minimizedToEdge: Boolean(side && payload.minimizedToEdge) };
   if (isRendererWindowHidden()) {
     statsRenderScheduler.request();
     return;
@@ -9394,6 +9409,8 @@ function applyFloatingBubbleState(payload = {}, options = {}) {
   document.documentElement.classList.toggle('floating-bubble-collapsed-right', side === 'right');
   document.body.classList.toggle('floating-bubble-collapsed-left', side === 'left');
   document.body.classList.toggle('floating-bubble-collapsed-right', side === 'right');
+  document.documentElement.classList.toggle('floating-bubble-minimized-edge', state.floatingBubble.minimizedToEdge);
+  document.body.classList.toggle('floating-bubble-minimized-edge', state.floatingBubble.minimizedToEdge);
   const title = t('floatingBubble.expand');
   if (els.floatingBubbleTab) {
     els.floatingBubbleTab.title = title;
@@ -9445,6 +9462,13 @@ function renderFloatingBubbleContent() {
   if (visibleStatsSurface() !== 'bubble') return;
   const el = els.floatingBubbleContent;
   if (!el || !state.floatingBubble.collapsed) return;
+  if (state.floatingBubble.minimizedToEdge) {
+    floatingBubbleRenderedBitmapHeight = null;
+    el.classList.remove('bars');
+    el.textContent = state.floatingBubble.side === 'left' ? '→' : '←';
+    reportFloatingBubbleSize();
+    return;
+  }
   const mode = state.settings?.floatingBubbleContent || 'icon';
   if (window.TokenMonitorTrayText.isGeneratedTrayIconMode(mode)) {
     // The generated content is a raster image displayed at 24 CSS px. Match its
@@ -9491,7 +9515,7 @@ function reportFloatingBubbleSize() {
   const mode = state.settings?.floatingBubbleContent || 'icon';
   // Height is constant; only the width tracks the content.
   let width = BUBBLE_CONTENT_MIN_W;
-  if (mode !== 'icon' && el) {
+  if (!state.floatingBubble.minimizedToEdge && mode !== 'icon' && el) {
     const pad = window.TokenMonitorTrayText.isGeneratedTrayIconMode(mode) ? 8 : BUBBLE_CONTENT_PAD_X * 2;
     width = Math.max(BUBBLE_CONTENT_MIN_W, Math.ceil(el.scrollWidth) + pad);
   }
@@ -9523,7 +9547,7 @@ let floatingBubbleHoverCollapseTimer = null;
 let suppressHoverRevealUntilReentry = false;
 
 function floatingBubbleHoverMode() {
-  return state.settings?.floatingBubbleTrigger === 'hover' && state.settings?.floatingBubbleEnabled === true;
+  return !state.floatingBubble.minimizedToEdge && state.settings?.floatingBubbleTrigger === 'hover' && state.settings?.floatingBubbleEnabled === true;
 }
 
 function clearHoverRevealTimer() {
@@ -9605,7 +9629,7 @@ function handleFloatingBubblePointerMove(event) {
   if (!drag || drag.pointerId !== event.pointerId) return;
   const totalDx = event.screenX - drag.startX;
   const totalDy = event.screenY - drag.startY;
-  if (!drag.moved && Math.hypot(totalDx, totalDy) < 4) return;
+  if (!drag.moved && (state.floatingBubble.minimizedToEdge ? Math.abs(totalDy) : Math.hypot(totalDx, totalDy)) < 4) return;
   drag.moved = true;
   els.floatingBubbleTab?.classList.add('dragging');
   const move = window.tokenMonitor.moveFloatingBubble?.({
@@ -13503,6 +13527,9 @@ els.resetDepthButton.addEventListener('click', async () => {
 els.glassInput.addEventListener('input', applyAppearanceFromControls);
 els.blurInput.addEventListener('input', applyAppearanceFromControls);
 els.zoomInput.addEventListener('input', applyAppearanceFromControls);
+els.chooseBackgroundImageButton?.addEventListener('click', () => { void changeBackgroundImage(); });
+els.clearBackgroundImageButton?.addEventListener('click', () => { void changeBackgroundImage(true); });
+void loadBackgroundImage();
 els.resetThemeColorsButton?.addEventListener('click', () => commitThemeColors({}));
 els.resetVendorColorsButton?.addEventListener('click', () => commitVendorColors({}));
 els.interfaceFontPreset?.addEventListener('change', () => handleFontPresetChange('interface'));
@@ -13596,6 +13623,9 @@ els.swapSettingsRefreshInput.addEventListener('change', () => {
 els.discordRpcInput.addEventListener('change', saveAppearanceFromControls);
 els.windowBehaviorInput.addEventListener('change', () => saveSettings({ windowBehavior: els.windowBehaviorInput.value }));
 els.keepAboveTaskbarInput?.addEventListener('change', () => saveSettings({ keepAboveTaskbar: els.keepAboveTaskbarInput.checked }));
+document.getElementById('nativeShortcutsInput')?.addEventListener('change', (event) => {
+  saveSettings({ nativeShortcutsEnabled: event.target.checked });
+});
 els.floatingBubbleInput.addEventListener('change', () => {
   state.settings.floatingBubbleEnabled = els.floatingBubbleInput.checked;
   els.floatingBubbleOptions?.classList.toggle('hidden', !els.floatingBubbleInput.checked);
