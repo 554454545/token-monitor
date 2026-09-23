@@ -23,6 +23,7 @@ const { exportFileSet, exportSignature, EXPORT_FILENAMES } = require('../shared/
 const { createDefaultTrayLayout, normalizeTrayLayout } = require('../shared/trayLayout');
 const fontSettingsApi = require('../shared/fontSettings');
 const motionPreferenceApi = require('./motionPreference');
+const { clearBackgroundImage, getBackgroundImage, importBackgroundImage } = require('./backgroundImage');
 const { createClientSourceIpcHandlers } = require('./clientSourceIpc');
 const { createClaudeWebFetch } = require('./providers/claude/webFetch');
 const { runAntigravityOAuthLogin } = require('./providers/antigravity/oauthLogin');
@@ -7147,6 +7148,19 @@ app.whenReady().then(() => {
   syncEdgeDock();
   setTimeout(() => { checkTokscaleNpm({ silent: true }); }, 2000);
   ipcMain.handle('settings:get', () => settingsForRenderer());
+  ipcMain.handle('appearance:getBackgroundImage', () => getBackgroundImage(app.getPath('userData')));
+  ipcMain.handle('appearance:chooseBackgroundImage', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return { dataUrl: await importBackgroundImage(result.filePaths[0], app.getPath('userData'), nativeImage) };
+  });
+  ipcMain.handle('appearance:clearBackgroundImage', async () => {
+    await clearBackgroundImage(app.getPath('userData'));
+    return true;
+  });
 
   // The dock card decorates its plan cell from the subscription records the
   // appearance carries, and only a settings push re-sends that appearance — while
