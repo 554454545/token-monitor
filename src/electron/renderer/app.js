@@ -366,6 +366,7 @@ const els = {
 };
 Object.assign(els, {
   musicPanel: document.getElementById('musicPanel'),
+  musicBackButton: document.getElementById('musicBackButton'),
   musicNow: document.getElementById('musicNow'),
   musicQueue: document.getElementById('musicQueue'),
   musicSearchPage: document.getElementById('musicSearchPage'),
@@ -374,8 +375,11 @@ Object.assign(els, {
   musicSearchInput: document.getElementById('musicSearchInput'),
   musicSearchStatus: document.getElementById('musicSearchStatus'),
   musicSearchList: document.getElementById('musicSearchList'),
+  musicSearchLoadMore: document.getElementById('musicSearchLoadMore'),
+  musicFavoriteSearchLoadMore: document.getElementById('musicFavoriteSearchLoadMore'),
   musicFavoriteSearchButton: document.getElementById('musicFavoriteSearchButton'),
   musicFavoriteSearchInput: document.getElementById('musicFavoriteSearchInput'),
+  musicFavoriteSearchField: document.getElementById('musicFavoriteSearchField'),
   musicFavoriteSearchStatus: document.getElementById('musicFavoriteSearchStatus'),
   musicPartsPage: document.getElementById('musicPartsPage'),
   musicPartsButton: document.getElementById('musicPartsButton'),
@@ -7647,11 +7651,26 @@ let musicQueueOpen = false;
 let favoriteSearchResults = null;
 const searchTimers = { all: null, favorites: null };
 const searchRequests = { all: 0, favorites: 0 };
+const musicSearchPages = { all: 0, favorites: 0 };
 let musicPartsOpen = false;
 let musicPartsData = [];
 let musicPartIndex = 0;
 let musicPage = 1;
 let displayedMusicId = '';
+let musicSeeking = false;
+let musicSeekHoldUntil = 0;
+let musicSeekTarget = 0;
+let musicClock = { elapsed: 0, duration: 0, playing: false, at: performance.now() };
+let musicTogglePendingUntil = 0;
+let musicToggleTarget = false;
+
+function updateMusicClock() {
+  if (musicSeeking || Date.now() < musicSeekHoldUntil) return;
+  const elapsed = Math.min(musicClock.duration, musicClock.elapsed + (musicClock.playing ? (performance.now() - musicClock.at) / 1000 : 0));
+  els.musicSeek.value = String(elapsed);
+  els.musicElapsed.textContent = musicTime(elapsed);
+}
+setInterval(updateMusicClock, 100);
 
 function musicTime(seconds) {
   const value = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -7726,30 +7745,46 @@ function renderMusicQueue(index = -1) {
   els.musicLoadMore.classList.toggle('hidden', Boolean(favoriteSearchResults) || !musicHasMore);
 }
 
-async function runMusicSearch(scope) {
+async function runMusicSearch(scope, nextPage = false) {
   const input = scope === 'all' ? els.musicSearchInput : els.musicFavoriteSearchInput;
   const status = scope === 'all' ? els.musicSearchStatus : els.musicFavoriteSearchStatus;
+  const button = scope === 'all' ? els.musicSearchLoadMore : els.musicFavoriteSearchLoadMore;
   const query = input.value.trim();
   const request = ++searchRequests[scope];
+  const page = nextPage ? musicSearchPages[scope] + 1 : 1;
+  status.classList.remove('is-error');
   if (!query) {
-    status.textContent = scope === 'all' ? '输入关键词搜索' : '';
+    musicSearchPages[scope] = 0;
+    button.classList.add('hidden');
+    status.textContent = scope === 'all' ? '搜索歌名、歌手或视频标题' : '';
     if (scope === 'all') els.musicSearchList.replaceChildren();
     else { favoriteSearchResults = null; renderMusicQueue(); }
     return;
   }
-  status.textContent = '正在搜索…';
+  button.disabled = true;
+  if (!nextPage) button.classList.add('hidden');
+  status.textContent = nextPage ? '正在加载更多…' : '正在搜索…';
   try {
-    const result = await window.tokenMonitor.searchMusic(scope, query);
+    const result = await window.tokenMonitor.searchMusic(scope, query, page);
     if (request !== searchRequests[scope]) return;
     const items = result?.items || [];
-    status.textContent = items.length ? `找到 ${items.length} 首` : '没有匹配的歌曲';
+    musicSearchPages[scope] = page;
+    status.textContent = items.length ? `已加载 ${items.length} 首` : '没有匹配的歌曲';
+    button.classList.toggle('hidden', result?.hasMore !== true);
     if (scope === 'all') {
       renderMusicItems(els.musicSearchList, items, displayedMusicId, (track) => {
         void window.tokenMonitor.musicCommand('select-search', { scope: 'all', id: track.id });
       });
     } else { favoriteSearchResults = items; renderMusicQueue(); }
   } catch (error) {
-    if (request === searchRequests[scope]) status.textContent = '搜索失败：' + error.message;
+    if (request === searchRequests[scope]) {
+      status.classList.add('is-error');
+      status.textContent = error.message;
+      button.classList.toggle('hidden', !nextPage);
+      if (!nextPage && scope === 'all') els.musicSearchList.replaceChildren();
+    }
+  } finally {
+    if (request === searchRequests[scope]) button.disabled = false;
   }
 }
 
@@ -7759,10 +7794,23 @@ function scheduleMusicSearch(scope) {
   searchTimers[scope] = setTimeout(() => { void runMusicSearch(scope); }, 350);
 }
 
+function updateMusicTitleScroll() {
+  const title = els.musicFooterTitle;
+  title.classList.remove('is-scrolling');
+  if (els.musicFooterTrack.classList.contains('hidden') || title.dataset.playing !== 'true') return;
+  const viewport = title.parentElement.clientWidth;
+  const width = title.scrollWidth;
+  title.style.setProperty('--music-title-viewport', `${viewport}px`);
+  title.style.setProperty('--music-title-duration', `${Math.max(8, (viewport + width) / 30)}s`);
+  title.classList.add('is-scrolling');
+}
+
+new ResizeObserver(() => requestAnimationFrame(updateMusicTitleScroll)).observe(els.musicFooterTitle.parentElement);
+
 function updateMusicLyricScroll() {
   const lyric = els.musicFooterLyric;
   lyric.classList.remove('is-scrolling');
-  if (els.musicFooterTrack.classList.contains('hidden') || els.musicFooterLyricViewport.classList.contains('hidden')) return;
+  if (els.musicFooterTrack.classList.contains('hidden') || els.musicFooterLyricViewport.classList.contains('hidden') || els.musicFooterTitle.dataset.playing !== 'true') return;
   const travel = Math.max(0, lyric.scrollWidth - els.musicFooterLyricViewport.clientWidth);
   if (!travel) return;
   lyric.style.setProperty('--music-lyric-travel', `${travel}px`);
@@ -7774,6 +7822,8 @@ function renderMusicState(value = {}) {
   const track = value.track || null;
   if ((track?.id || '') !== displayedMusicId || (track && els.musicTitle.textContent !== track.title)) {
     displayedMusicId = track?.id || '';
+    musicSeeking = false;
+    musicSeekHoldUntil = 0;
     els.musicTitle.textContent = track?.title || '选一首喜欢的歌';
     els.musicArtist.textContent = track?.artist || '你的 B 站收藏夹已准备好';
     if (track?.cover) els.musicCover.src = track.cover;
@@ -7783,11 +7833,18 @@ function renderMusicState(value = {}) {
   const duration = Math.max(0, Number(value.duration) || track?.duration || 0);
   const elapsed = Math.min(duration, Math.max(0, Number(value.currentTime) || 0));
   els.musicSeek.max = String(duration || 100);
-  els.musicSeek.value = String(elapsed);
   els.musicSeek.disabled = !track || duration <= 0;
-  els.musicElapsed.textContent = musicTime(elapsed);
+  if (Math.abs(elapsed - musicSeekTarget) < 1.5) musicSeekHoldUntil = 0;
+  if (!musicSeeking && Date.now() >= musicSeekHoldUntil) {
+    musicClock = { elapsed, duration, playing: value.paused === false, at: performance.now() };
+    updateMusicClock();
+  }
   els.musicDuration.textContent = musicTime(duration);
-  els.musicToggle.textContent = value.paused === false ? '❚❚' : '▶';
+  const playing = Date.now() < musicTogglePendingUntil ? musicToggleTarget : value.paused === false;
+  els.musicToggle.querySelector('.music-icon-play').classList.toggle('hidden', playing);
+  els.musicToggle.querySelector('.music-icon-pause').classList.toggle('hidden', !playing);
+  els.musicToggle.setAttribute('aria-label', playing ? '暂停' : '播放');
+  els.musicToggle.title = playing ? '暂停' : '播放';
   els.musicStatus.textContent = value.status || '从列表选择一首歌';
   els.musicQuality.textContent = value.qualityApplied ? '360P' : '360P 优先';
   const parts = Array.isArray(value.parts) ? value.parts : [];
@@ -7806,7 +7863,15 @@ function renderMusicState(value = {}) {
   if (document.activeElement !== els.musicVolume) els.musicVolume.value = String(volume);
   els.musicVolumeValue.textContent = String(volume);
   els.musicFooterTrack.classList.toggle('hidden', !track || musicOpen);
-  els.musicFooterTitle.textContent = track ? (parts.length > 1 ? `P${(value.partIndex || 0) + 1} · ` : '') + track.title : '';
+  const footerTitle = track ? (parts.length > 1 ? `P${(value.partIndex || 0) + 1} · ` : '') + track.title : '';
+  const titleChanged = els.musicFooterTitle.textContent !== footerTitle;
+  const playingChanged = els.musicFooterTitle.dataset.playing !== String(value.paused === false);
+  if (titleChanged) els.musicFooterTitle.textContent = footerTitle;
+  els.musicFooterTitle.dataset.playing = String(value.paused === false);
+  if (titleChanged || playingChanged) {
+    requestAnimationFrame(updateMusicTitleScroll);
+    requestAnimationFrame(updateMusicLyricScroll);
+  }
   const lyric = typeof value.lyric === 'string' ? value.lyric : '';
   if (els.musicFooterLyric.textContent !== lyric) {
     els.musicFooterLyric.textContent = lyric;
@@ -7824,7 +7889,10 @@ async function setMusicOpen(open) {
   els.shell.classList.toggle('music-open', open);
   els.musicPanel.classList.toggle('hidden', !open);
   els.musicFooterTrack.classList.toggle('hidden', open || !displayedMusicId);
-  if (!open) requestAnimationFrame(updateMusicLyricScroll);
+  if (!open) {
+    requestAnimationFrame(updateMusicTitleScroll);
+    requestAnimationFrame(updateMusicLyricScroll);
+  }
   renderViewSwitcher();
   if (!open) return;
   try {
@@ -7842,22 +7910,35 @@ async function setMusicOpen(open) {
 
 els.musicCover.addEventListener('error', () => els.musicCover.removeAttribute('src'));
 window.tokenMonitor.onMusicState(renderMusicState);
+void window.tokenMonitor.getRememberedMusicTrack().then((track) => {
+  if (track && !musicOpen && !displayedMusicId) renderMusicState({ track, paused: true, duration: track.duration, status: '已暂停' });
+}).catch(() => {});
 window.tokenMonitor.onMusicPlaylist((value) => {
   musicPlaylist = value.items || [];
   musicHasMore = value.hasMore === true;
   renderMusicQueue(value.index);
 });
 els.musicQueueButton.addEventListener('click', () => showMusicQueue(!musicQueueOpen));
-els.musicSearchButton.addEventListener('click', () => { showMusicPage('search'); els.musicSearchInput.focus(); });
+els.musicBackButton.addEventListener('click', () => { void setMusicOpen(false); });
+els.musicSearchButton.addEventListener('click', () => {
+  showMusicPage('search');
+  els.musicSearchInput.focus();
+});
 els.musicSearchBack.addEventListener('click', () => showMusicPage('now'));
-els.musicSearchInput.addEventListener('input', () => scheduleMusicSearch('all'));
+els.musicSearchInput.addEventListener('input', (event) => { if (!event.isComposing) scheduleMusicSearch('all'); });
+els.musicSearchInput.addEventListener('compositionstart', () => clearTimeout(searchTimers.all));
+els.musicSearchInput.addEventListener('compositionend', () => scheduleMusicSearch('all'));
+els.musicSearchLoadMore.addEventListener('click', () => { void runMusicSearch('all', true); });
 els.musicFavoriteSearchButton.addEventListener('click', () => {
-  const open = els.musicFavoriteSearchInput.classList.toggle('hidden') === false;
+  const open = els.musicFavoriteSearchField.classList.toggle('hidden') === false;
   els.musicFavoriteSearchStatus.classList.toggle('hidden', !open);
   if (open) els.musicFavoriteSearchInput.focus();
-  else { els.musicFavoriteSearchInput.value = ''; void runMusicSearch('favorites'); }
+  else { els.musicFavoriteSearchInput.value = ''; els.musicFavoriteSearchLoadMore.classList.add('hidden'); void runMusicSearch('favorites'); }
 });
-els.musicFavoriteSearchInput.addEventListener('input', () => scheduleMusicSearch('favorites'));
+els.musicFavoriteSearchInput.addEventListener('input', (event) => { if (!event.isComposing) scheduleMusicSearch('favorites'); });
+els.musicFavoriteSearchInput.addEventListener('compositionstart', () => clearTimeout(searchTimers.favorites));
+els.musicFavoriteSearchInput.addEventListener('compositionend', () => scheduleMusicSearch('favorites'));
+els.musicFavoriteSearchLoadMore.addEventListener('click', () => { void runMusicSearch('favorites', true); });
 els.musicQueueClose.addEventListener('click', () => showMusicQueue(false));
 els.musicLoadMore.addEventListener('click', async () => {
   els.musicLoadMore.disabled = true;
@@ -7890,14 +7971,34 @@ els.musicVolume.addEventListener('input', () => {
   els.musicVolumeValue.textContent = els.musicVolume.value;
   void window.tokenMonitor.musicCommand('volume', Number(els.musicVolume.value) / 100);
 });
+els.musicSeek.addEventListener('input', () => {
+  musicSeeking = true;
+  els.musicElapsed.textContent = musicTime(els.musicSeek.value);
+});
 els.musicSeek.addEventListener('change', () => {
-  void window.tokenMonitor.musicCommand('seek', Number(els.musicSeek.value));
+  musicSeeking = false;
+  musicSeekTarget = Number(els.musicSeek.value);
+  musicSeekHoldUntil = Date.now() + 1800;
+  els.musicElapsed.textContent = musicTime(musicSeekTarget);
+  void window.tokenMonitor.musicCommand('seek', musicSeekTarget);
 });
 els.musicPanel.addEventListener('click', (event) => {
   const action = event.target.closest('[data-music-action]')?.dataset.musicAction;
   if (!action) return;
   if (action === 'toggle' && !displayedMusicId) { showMusicQueue(true); return; }
-  void window.tokenMonitor.musicCommand(action);
+  if (action === 'toggle') {
+    musicToggleTarget = els.musicToggle.getAttribute('aria-label') !== '暂停';
+    musicTogglePendingUntil = Date.now() + 1200;
+    const now = performance.now();
+    musicClock = { ...musicClock, elapsed: Math.min(musicClock.duration, musicClock.elapsed + (musicClock.playing ? (now - musicClock.at) / 1000 : 0)), playing: musicToggleTarget, at: now };
+    els.musicToggle.querySelector('.music-icon-play').classList.toggle('hidden', musicToggleTarget);
+    els.musicToggle.querySelector('.music-icon-pause').classList.toggle('hidden', !musicToggleTarget);
+    els.musicToggle.setAttribute('aria-label', musicToggleTarget ? '暂停' : '播放');
+    els.musicToggle.title = musicToggleTarget ? '暂停' : '播放';
+  }
+  void window.tokenMonitor.musicCommand(action).then((ok) => {
+    if (action === 'toggle' && !ok) musicTogglePendingUntil = 0;
+  });
 });
 
 function renderViewSwitcher({ focusMenu = false, focusDisclosure = false } = {}) {

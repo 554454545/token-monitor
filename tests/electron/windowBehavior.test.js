@@ -47,13 +47,20 @@ test('maps window behavior modes to window flags', () => {
     mode: 'desktop',
     alwaysOnTop: false,
     draggable: true,
-    resizable: false,
+    resizable: true,
     focusable: true,
     mousePassthrough: false,
     showInactive: false,
     requiresTrayControl: false,
     cssClass: 'desktop-mode'
   });
+});
+
+test('desktop mode keeps the WSLg edge resize handles available', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'renderer', 'styles.css'), 'utf8');
+  assert.doesNotMatch(css, /\.shell\.desktop-mode \.window-resize-handle/);
+  assert.match(css, /\.shell\.tray-mode \.window-resize-handle \{ display: none; \}/);
+  assert.equal(describeWindowBehavior({ windowBehavior: 'desktop' }).resizable, true);
 });
 
 test('migrates legacy alwaysOnTop settings when no behavior is saved', () => {

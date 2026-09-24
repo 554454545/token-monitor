@@ -25,8 +25,9 @@ contextBridge.exposeInMainWorld('tokenMonitor', {
   getCodexResetForecast: (options) => ipcRenderer.invoke('codexResetForecast:get', options),
   openDashboard: () => ipcRenderer.invoke('dashboard:open'),
   openMusic: () => ipcRenderer.invoke('music:open'),
+  getRememberedMusicTrack: () => ipcRenderer.invoke('music:remembered'),
   getMusicPlaylist: (page) => ipcRenderer.invoke('music:playlist', page),
-  searchMusic: (scope, query) => ipcRenderer.invoke('music:search', scope, query),
+  searchMusic: (scope, query, page) => ipcRenderer.invoke('music:search', scope, query, page),
   musicCommand: (action, value) => ipcRenderer.invoke('music:command', action, value),
   onMusicState: (callback) => {
     const listener = (_event, value) => { try { callback(value); } catch (_) {} };

@@ -19,6 +19,7 @@ let playlist = [];
 let activeQueue = playlist;
 let searchResults = { all: [], favorites: [] };
 let searchRevision = { all: 0, favorites: 0 };
+let searchQueries = { all: '', favorites: '' };
 let restorePaused = false;
 let selectionRevision = 0;
 let playlistPage = 0;
@@ -32,6 +33,7 @@ let handledEnd = false;
 let qualityApplied = false;
 let autoplayPending = false;
 let loadingPage = false;
+let resetPlaybackPosition = false;
 let savedBvid = '';
 let parts = [];
 let partIndex = 0;
@@ -123,6 +125,7 @@ function playerScript(action, value) {
   }
   if (action === 'pause') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); if (!m) return false; m.pause(); return true; })()';
   if (action === 'seek') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); if (!m || !Number.isFinite(m.duration)) return false; m.currentTime = Math.max(0, Math.min(m.duration, ' + (Number(value) || 0) + ')); return true; })()';
+  if (action === 'restart') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); if (!m || m.readyState < 1) return false; m.currentTime = 0; return true; })()';
   if (action === 'quality') return '(() => { const p = window.player || window.__BILI_PLAYER__; if (typeof p?.setQuality === "function") { p.setQuality(16); return p.getQuality?.() === 16; } const a = [...document.querySelectorAll(".bpx-player-ctrl-quality-menu-item, [data-quality], [data-qn]")]; const low = a.find(x => /360[Pp]/.test(x.textContent || "") || x.dataset.quality === "16" || x.dataset.qn === "16"); if (low) { low.click(); return false; } return false; })()';
   return '';
 }
@@ -178,21 +181,33 @@ function searchTitle(value) {
   return String(value || '').replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 }
 
-async function searchMusic(scope, rawQuery) {
-  if (scope !== 'all' && scope !== 'favorites') return { items: [] };
+async function searchMusic(scope, rawQuery, page = 1) {
+  if (scope !== 'all' && scope !== 'favorites') return { items: [], hasMore: false };
   const query = String(rawQuery || '').trim().slice(0, 80);
+  const requestedPage = Math.max(1, Math.floor(Number(page) || 1));
+  if (!query) {
+    searchQueries[scope] = '';
+    searchResults[scope] = [];
+    return { items: [], hasMore: false };
+  }
+  if (requestedPage > 1 && searchQueries[scope] !== query) return { items: [], hasMore: false };
+  if (requestedPage === 1) {
+    searchQueries[scope] = query;
+    searchResults[scope] = [];
+  }
   const revision = ++searchRevision[scope];
-  if (!query) { searchResults[scope] = []; return { items: [] }; }
   const url = scope === 'favorites'
-    ? `https://api.bilibili.com/x/v3/fav/resource/list?media_id=${favoritesMediaId()}&pn=1&ps=40&platform=web&keyword=${encodeURIComponent(query)}`
-    : `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(query)}&page=1`;
-  const response = await fetch(url, { headers: { Referer: scope === 'favorites' ? 'https://space.bilibili.com/' : 'https://www.bilibili.com/', 'User-Agent': BROWSER_USER_AGENT }, signal: AbortSignal.timeout(10000) });
-  if (!response.ok) throw new Error('搜索失败：HTTP ' + response.status);
+    ? `https://api.bilibili.com/x/v3/fav/resource/list?media_id=${favoritesMediaId()}&pn=${requestedPage}&ps=40&platform=web&keyword=${encodeURIComponent(query)}`
+    : `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(query)}&page=${requestedPage}`;
+  const options = { credentials: 'include', headers: { Referer: scope === 'favorites' ? 'https://space.bilibili.com/' : 'https://www.bilibili.com/', 'User-Agent': BROWSER_USER_AGENT }, signal: AbortSignal.timeout(10000) };
+  const browserSession = musicPage?.webContents?.session;
+  const response = browserSession ? await browserSession.fetch(url, options) : await fetch(url, options);
+  if (!response.ok) throw new Error(response.status === 412 ? 'B 站暂时限制搜索，请稍后重试' : '搜索失败：HTTP ' + response.status);
   const body = await response.json();
   if (body.code !== 0) throw new Error(body.message || '搜索不可用');
   const records = scope === 'favorites' ? body.data?.medias : body.data?.result;
-  if (!Array.isArray(records)) return { items: [] };
-  const items = records.flatMap((record) => {
+  if (!Array.isArray(records)) return { items: [], hasMore: false };
+  const incoming = records.flatMap((record) => {
     const bvid = String(record.bvid || '');
     if (!/^BV[0-9A-Za-z]{10}$/.test(bvid)) return [];
     return [{ id: bvid, bvid, sourceId: MUSIC_SOURCE.id,
@@ -200,8 +215,15 @@ async function searchMusic(scope, rawQuery) {
       cover: coverUrl(scope === 'favorites' ? record.cover : record.pic),
       duration: scope === 'favorites' ? Math.max(0, Number(record.duration) || 0) : searchDuration(record.duration) }];
   });
-  if (revision === searchRevision[scope]) searchResults[scope] = items;
-  return { items };
+  const previous = requestedPage === 1 ? [] : searchResults[scope];
+  const seen = new Set(previous.map((item) => item.bvid));
+  const items = [...previous, ...incoming.filter((item) => !seen.has(item.bvid) && seen.add(item.bvid))];
+  const pageCount = Number(body.data?.numPages);
+  const hasMore = scope === 'favorites'
+    ? body.data?.has_more === true
+    : Number.isFinite(pageCount) && pageCount > 0 ? requestedPage < pageCount : records.length > 0;
+  if (revision === searchRevision[scope] && query === searchQueries[scope]) searchResults[scope] = items;
+  return { items, hasMore };
 }
 
 async function setQuality(page, id) {
@@ -223,6 +245,11 @@ async function startPlaybackWhenReady(page, id) {
     if (id !== navigationId || page.isDestroyed()) return;
     try {
       await page.executeJavaScript(playerScript('volume', volume), true);
+      if (resetPlaybackPosition) {
+        const reset = await page.executeJavaScript(playerScript('restart'), true);
+        if (!reset) throw new Error('视频尚未就绪');
+        resetPlaybackPosition = false;
+      }
       const result = await page.executeJavaScript(playerScript('play'), true);
       if (result?.ok) { autoplayPending = false; setStatus('正在播放'); return; }
       if (result && !result.retryable) { autoplayPending = false; setStatus(result.message); return; }
@@ -236,6 +263,14 @@ async function readPlayback() {
   if (!musicPage || musicPage.webContents.isDestroyed() || currentIndex < 0 || loadingPage) return;
   try {
     const result = await musicPage.webContents.executeJavaScript(playerScript('state'), true);
+    if (resetPlaybackPosition && result.duration > 0 && (restorePaused || !autoplayPending)) {
+      const reset = await musicPage.webContents.executeJavaScript(playerScript('restart'), true);
+      if (reset) { resetPlaybackPosition = false; result.currentTime = 0; }
+    }
+    if (restorePaused && result.currentTime > 0.4) {
+      await musicPage.webContents.executeJavaScript(playerScript('restart'), true);
+      result.currentTime = 0;
+    }
     if (restorePaused && !result.paused) {
       await musicPage.webContents.executeJavaScript(playerScript('pause'), true);
       return;
@@ -337,6 +372,7 @@ async function playIndex(index, queue = playlist, autoPlay = true) {
   captions = [];
   captionRequest += 1;
   autoplayPending = autoPlay;
+  resetPlaybackPosition = true;
   saveBvid(queue[index].bvid, queue[index]);
   handledEnd = false;
   playback = { paused: true, currentTime: 0, duration: queue[index].duration, ended: false };
@@ -369,6 +405,7 @@ async function playPart(index) {
   partIndex = index;
   void loadCaptions(index);
   autoplayPending = true;
+  resetPlaybackPosition = true;
   handledEnd = false;
   playback = { paused: true, currentTime: 0, duration: parts[index].duration, ended: false };
   setStatus('正在加载分段');
@@ -407,16 +444,26 @@ async function musicPlayerCommand(event, action, value) {
       return applied;
     }
     if (action === 'next' || action === 'previous') return advance(action === 'next' ? 1 : -1);
-    if (action === 'seek') return page.executeJavaScript(playerScript('seek', value), true);
+    if (action === 'seek') {
+      resetPlaybackPosition = false;
+      const applied = await page.executeJavaScript(playerScript('seek', value), true);
+      if (applied) { playback.currentTime = Math.max(0, Math.min(playback.duration || 0, Number(value) || 0)); emitState(); }
+      return applied;
+    }
     if (action === 'toggle') {
       if (currentIndex < 0) return false;
       restorePaused = false;
       autoplayPending = false;
+      if (resetPlaybackPosition) {
+        const reset = await page.executeJavaScript(playerScript('restart'), true);
+        if (reset) resetPlaybackPosition = false;
+      }
       const result = await page.executeJavaScript(playerScript('toggle'), true);
       if (!result.ok && result.retryable) {
         autoplayPending = true;
         void startPlaybackWhenReady(page, navigationId);
       }
+      if (result.ok) playback.paused = result.message === '已暂停';
       setStatus(result.message);
       return result.ok === true;
     }
@@ -425,6 +472,6 @@ async function musicPlayerCommand(event, action, value) {
 }
 
 module.exports = {
-  allowedUrl, coverUrl, subtitleUrl, captionAt, loadPlaylist, searchMusic, playerScript, attachMusicPlayerWindow,
+  readSavedTrack, allowedUrl, coverUrl, subtitleUrl, captionAt, loadPlaylist, searchMusic, playerScript, attachMusicPlayerWindow,
   musicPlayerCommand, openMusicPlayer
 };

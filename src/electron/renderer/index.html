@@ -12,7 +12,7 @@
     <main class="shell">
       <header class="titlebar">
         <div>
-          <div class="app-title"><span class="app-title-text">Token Monitor</span><span class="app-title-mark" aria-hidden="true">Σ</span><span id="liveDot" class="live-dot" title="Stream offline"></span><span id="tokenRateReveal" class="token-rate-reveal" aria-hidden="true"></span><span class="app-title-measure" aria-hidden="true">Token Monitor</span></div>
+          <div class="app-title"><button id="musicBackButton" class="music-back-button" type="button" title="返回 Token" aria-label="返回 Token 主界面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7M7 12h13"/></svg></button><span class="app-title-text">Token Monitor</span><span class="app-title-mark" aria-hidden="true">Σ</span><span id="liveDot" class="live-dot" title="Stream offline"></span><span id="tokenRateReveal" class="token-rate-reveal" aria-hidden="true"></span><span class="app-title-measure" aria-hidden="true">Token Monitor</span></div>
           <div id="status" class="status">Starting</div>
         </div>
         <div class="title-controls">
@@ -1822,7 +1822,7 @@
         <div class="music-topline">
           <span class="music-source-dot" aria-hidden="true">♫</span>
           <div class="music-heading"><strong>我的音乐</strong><span id="musicSourceLabel">BILIBILI · 收藏夹</span></div>
-          <button id="musicSearchButton" class="music-list-button" type="button" aria-label="搜索 B 站歌曲" title="搜索 B 站歌曲">⌕</button>
+          <button id="musicSearchButton" class="music-list-button" type="button" aria-label="搜索 B 站歌曲" title="搜索 B 站歌曲"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg></button>
           <button id="musicQueueButton" class="music-list-button" type="button" aria-label="打开播放列表">☰ <span>列表</span></button>
         </div>
         <div id="musicNow" class="music-now">
@@ -1832,7 +1832,7 @@
           <div class="music-timeline"><input id="musicSeek" type="range" min="0" max="100" value="0" aria-label="播放进度" /><div><span id="musicElapsed">0:00</span><span id="musicDuration">0:00</span></div></div>
           <div class="music-playback-controls">
             <button type="button" data-music-action="previous" aria-label="上一首" title="上一首"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M18 5 7 12l11 7V5Z"/></svg></button>
-            <button id="musicToggle" class="music-play-button" type="button" data-music-action="toggle" aria-label="播放或暂停" title="播放或暂停">▶</button>
+            <button id="musicToggle" class="music-play-button" type="button" data-music-action="toggle" aria-label="播放" title="播放"><svg class="music-icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.7c0-.8.9-1.2 1.5-.8l8.3 5.3a.95.95 0 0 1 0 1.6l-8.3 5.3c-.6.4-1.5 0-1.5-.8Z"/></svg><svg class="music-icon-pause hidden" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="6" width="3.4" height="12" rx="1.2"/><rect x="13.6" y="6" width="3.4" height="12" rx="1.2"/></svg></button>
             <button type="button" data-music-action="next" aria-label="下一首" title="下一首"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M6 5l11 7-11 7V5Z"/></svg></button>
             <div class="music-volume-control">
               <button id="musicVolumeButton" type="button" aria-label="调节音量" aria-expanded="false" title="调节音量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="none"/><path d="M17 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12" fill="none"/></svg></button>
@@ -1847,15 +1847,17 @@
         </div>
         <div id="musicSearchPage" class="music-search-page hidden">
           <div class="music-search-heading"><button id="musicSearchBack" type="button" aria-label="返回播放器">‹</button><strong>搜索 B 站歌曲</strong></div>
-          <input id="musicSearchInput" type="search" maxlength="80" placeholder="输入歌名或歌手" aria-label="搜索 B 站歌曲" />
-          <div id="musicSearchStatus" class="music-search-status">输入关键词搜索</div>
+          <div class="music-search-field"><input id="musicSearchInput" type="text" inputmode="search" autocomplete="off" lang="zh-CN" maxlength="80" placeholder="输入歌名或歌手" aria-label="搜索 B 站歌曲" /></div>
+          <div id="musicSearchStatus" class="music-search-status">搜索歌名、歌手或视频标题</div>
           <div id="musicSearchList" class="music-track-list"></div>
+          <button id="musicSearchLoadMore" class="music-load-more hidden" type="button">加载更多搜索结果</button>
         </div>
         <div id="musicQueue" class="music-queue hidden">
-          <div class="music-queue-heading"><strong>我的收藏</strong><span class="music-queue-actions"><button id="musicFavoriteSearchButton" type="button" aria-label="搜索我的收藏" title="搜索我的收藏">⌕</button><button id="musicQueueClose" type="button" aria-label="关闭列表">✕</button></span></div>
-          <input id="musicFavoriteSearchInput" class="music-favorite-search hidden" type="search" maxlength="80" placeholder="搜索我的收藏" aria-label="搜索我的收藏" />
+          <div class="music-queue-heading"><strong>我的收藏</strong><span class="music-queue-actions"><button id="musicFavoriteSearchButton" type="button" aria-label="搜索我的收藏" title="搜索我的收藏"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg></button><button id="musicQueueClose" type="button" aria-label="关闭列表">✕</button></span></div>
+          <div id="musicFavoriteSearchField" class="music-search-field hidden"><input id="musicFavoriteSearchInput" class="music-favorite-search" type="text" inputmode="search" autocomplete="off" lang="zh-CN" maxlength="80" placeholder="搜索我的收藏" aria-label="搜索我的收藏" /></div>
           <div id="musicFavoriteSearchStatus" class="music-search-status hidden"></div>
           <div id="musicTrackList" class="music-track-list"></div>
+          <button id="musicFavoriteSearchLoadMore" class="music-load-more hidden" type="button">加载更多搜索结果</button>
           <button id="musicLoadMore" class="music-load-more" type="button">加载更多</button>
         </div>
       </section>

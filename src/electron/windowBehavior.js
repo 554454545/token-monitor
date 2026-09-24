@@ -29,7 +29,7 @@ const WINDOW_BEHAVIOR_PROFILES = {
     mode: 'desktop',
     alwaysOnTop: false,
     draggable: true,
-    resizable: false,
+    resizable: true,
     focusable: true,
     mousePassthrough: false,
     showInactive: false,
