@@ -7925,7 +7925,7 @@ function renderMusicState(value = {}) {
   if (document.activeElement !== els.musicVolume) els.musicVolume.value = String(volume);
   els.musicVolumeValue.textContent = String(volume);
   els.musicFooterTrack.classList.toggle('hidden', !track || musicOpen);
-  const footerTitle = track ? (parts.length > 1 ? `P${(value.partIndex || 0) + 1} · ` : '') + track.title : '';
+  const footerTitle = track ? (parts.length > 1 && parts[partIndex]?.title ? parts[partIndex].title : track.title) : '';
   const titleChanged = els.musicFooterTitle.textContent !== footerTitle;
   const playingChanged = els.musicFooterTitle.dataset.playing !== String(value.paused === false);
   if (titleChanged) els.musicFooterTitle.textContent = footerTitle;
