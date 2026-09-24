@@ -17,6 +17,7 @@ const {
   writePrivateJsonAtomic
 } = require('../shared/credentialStore');
 const { installSafeStdout } = require('../shared/safeStdio');
+const { initRuntimeLog, logRuntime } = require('./runtimeLog');
 const { appVersion } = require('../shared/appVersion');
 const { macWidgetRuntimeSupport } = require('../shared/macSystemRequirements');
 const { exportFileSet, exportSignature, EXPORT_FILENAMES } = require('../shared/exporter');
@@ -6904,6 +6905,7 @@ function createDashboardWindow() {
     discardFailedDashboardWindow(win, `load failed: ${errorDescription}`);
   });
   win.webContents.on('render-process-gone', (_event, details) => {
+    logRuntime('window-render-process-gone', JSON.stringify(details));
     discardFailedDashboardWindow(win, `renderer stopped: ${details.reason}`);
   });
   win.on('unresponsive', () => {
@@ -6996,6 +6998,7 @@ function rebuildWindow() {
 }
 
 app.whenReady().then(() => {
+  initRuntimeLog();
   if (process.platform === 'darwin' && app.dock) app.dock.setIcon(APP_ICON_PATH);
   ensureSettingsLoaded();
   // Switching the OS between light and dark repaints the taskbar underneath an
