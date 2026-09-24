@@ -52,6 +52,8 @@ test("Bilibili autoplay and near-end rollover advance Token own queue", () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'musicPlayer.js'), 'utf8');
   assert.match(source, /did-navigate-in-page/);
   assert.match(source, /const commandRevision = playbackRevision;[\s\S]*?commandRevision !== playbackRevision/);
+  assert.match(source, /pageIndex: Math\.max\(0,.*location\?\.search/);
+  assert.match(source, /const detectedPart = Number\.isInteger\(result\.pageIndex\)/);
   assert.doesNotMatch(source, /handledEnd = false; setStatus\('正在播放'\)/);
 });
 

@@ -161,7 +161,7 @@ async function loadCaptions(index) {
 }
 
 function playerScript(action, value) {
-  if (action === 'state') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); return m ? { paused: m.paused, ended: m.ended, currentTime: m.currentTime || 0, duration: Number.isFinite(m.duration) ? m.duration : 0, volume: m.volume, errorCode: m.error?.code || 0, videoBvid: globalThis.location?.pathname?.match(new RegExp("/video/(BV[0-9A-Za-z]{10})"))?.[1] || "" } : { paused: true, ended: false, currentTime: 0, duration: 0, errorCode: 0 }; })()';
+  if (action === 'state') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); return m ? { paused: m.paused, ended: m.ended, currentTime: m.currentTime || 0, duration: Number.isFinite(m.duration) ? m.duration : 0, volume: m.volume, errorCode: m.error?.code || 0, videoBvid: globalThis.location?.pathname?.match(new RegExp("/video/(BV[0-9A-Za-z]{10})"))?.[1] || "", pageIndex: Math.max(0, (Number(globalThis.location?.search?.match(/[?&]p=(\\d+)/)?.[1]) || 1) - 1) } : { paused: true, ended: false, currentTime: 0, duration: 0, errorCode: 0 }; })()';
   if (action === 'volume') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); if (!m) return false; m.volume = ' + Math.max(0, Math.min(1, Number(value) || 0)) + '; return true; })()';
   if (action === 'toggle' || action === 'play') {
     return '(async () => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); if (!m) return { ok: false, retryable: true, message: "播放器还在加载" }; if (' + (action === 'play' ? 'true' : 'm.paused') + ') { try { await m.play(); return { ok: !m.paused, message: m.paused ? "播放器未开始播放" : "正在播放" }; } catch (error) { return { ok: false, retryable: error?.name === "AbortError", message: "播放失败：" + (error?.message || error?.name || "未知错误") }; } } m.pause(); return { ok: true, message: "已暂停" }; })()';
@@ -327,6 +327,14 @@ async function readPlayback() {
       return;
     }
     if (revision !== selectionRevision || commandRevision !== playbackRevision || loadingPage) return;
+    const detectedPart = Number.isInteger(result.pageIndex) && result.pageIndex >= 0 && result.pageIndex < parts.length ? result.pageIndex : partIndex;
+    if (detectedPart !== partIndex) {
+      partIndex = detectedPart;
+      captions = [];
+      captionRequest += 1;
+      emitState();
+      void loadCaptions(detectedPart);
+    }
     playback = result;
     if (result.errorCode) {
       const reason = { 1: '播放被中断', 2: '媒体网络错误', 3: '媒体解码失败', 4: '媒体格式不支持' }[result.errorCode] || '媒体错误';
