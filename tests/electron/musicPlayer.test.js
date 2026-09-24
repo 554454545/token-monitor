@@ -281,17 +281,18 @@ test('footer title and lyric scroll only while music is playing, including short
 });
 
 
-test('footer reserves at most two bounded lines for title and optional lyric', () => {
+test('footer shows only the current track while the parts list locates the current part', () => {
   const root = path.join(__dirname, '..', '..', 'src', 'electron', 'renderer');
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
   assert.match(html, /id="musicFooterTitle"/);
-  assert.match(html, /id="musicFooterLyricViewport"/);
-  assert.match(styles, /\.music-footer-lyric-viewport \{[^}]*overflow: hidden/);
-  assert.match(app, /musicFooterLyricViewport\.classList\.toggle\('hidden', !lyric\)/);
+  assert.match(styles, /\.music-footer-lyric-viewport \{ display: none !important/);
+  assert.match(app, /musicFooterLyricViewport\.classList\.add\('hidden'\)/);
+  assert.match(app, /function scrollMusicPartsToCurrent\(\)/);
+  assert.match(app, /musicPartsNeedsCurrentScroll/);
+  assert.match(app, /musicCurrentPart\.textContent = parts\[partIndex\]/);
 });
-
 
 test('Bilibili search normalizes results without adding them to favorites', async () => {
   const original = global.fetch;

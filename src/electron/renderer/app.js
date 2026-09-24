@@ -7662,6 +7662,7 @@ const musicSearchPages = { all: 0, favorites: 0 };
 let musicPartsOpen = false;
 let musicPartsData = [];
 let musicPartIndex = 0;
+let musicPartsNeedsCurrentScroll = false;
 let musicPage = 1;
 let displayedMusicId = '';
 let musicSeeking = false;
@@ -7689,6 +7690,7 @@ function musicTime(seconds) {
 function showMusicPage(page = 'now') {
   musicQueueOpen = page === 'queue';
   musicPartsOpen = page === 'parts';
+  if (musicPartsOpen) { musicPartsNeedsCurrentScroll = true; requestAnimationFrame(() => { if (scrollMusicPartsToCurrent()) musicPartsNeedsCurrentScroll = false; }); }
   els.musicSearchPage.classList.toggle('hidden', page !== 'search');
   els.musicNow.classList.toggle('hidden', page !== 'now');
   els.musicQueue.classList.toggle('hidden', !musicQueueOpen);
@@ -7710,6 +7712,14 @@ function showMusicQueue(open) {
   if (open && scrollMusicQueueToCurrent()) musicQueueNeedsCurrentScroll = false;
 }
 
+function scrollMusicPartsToCurrent() {
+  const current = els.musicPartsList.querySelector('.music-part-item.is-current');
+  if (!current) return false;
+  const list = els.musicPartsList;
+  list.scrollTop += current.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  return true;
+}
+
 function renderMusicParts() {
   const fragment = document.createDocumentFragment();
   musicPartsData.forEach((part, index) => {
@@ -7728,6 +7738,7 @@ function renderMusicParts() {
     fragment.append(item);
   });
   els.musicPartsList.replaceChildren(fragment);
+  if (musicPartsOpen && musicPartsNeedsCurrentScroll && scrollMusicPartsToCurrent()) musicPartsNeedsCurrentScroll = false;
 }
 
 function renderMusicItems(container, items, selectedId, select) {
@@ -7904,6 +7915,7 @@ function renderMusicState(value = {}) {
     els.musicPartsButton.dataset.parts = partsKey;
     musicPartsData = parts;
     musicPartIndex = partIndex;
+    musicPartsNeedsCurrentScroll = musicPartsOpen;
     renderMusicParts();
   }
   els.musicPartsButton.classList.toggle('hidden', parts.length < 2);
@@ -7922,7 +7934,6 @@ function renderMusicState(value = {}) {
     requestAnimationFrame(updateMusicTitleScroll);
     requestAnimationFrame(updateMusicLyricScroll);
   }
-  const lyric = typeof value.lyric === 'string' ? value.lyric : '';
   const cue = value.lyricWindow;
   if (cue && cue.index !== musicLyricIndex) {
     finishMusicLyricTransition();
@@ -7944,12 +7955,8 @@ function renderMusicState(value = {}) {
     setMusicLyricLines(null);
   }
   els.musicNowLyric.classList.toggle('hidden', !track || !value.hasCaptions);
-  if (els.musicFooterLyric.textContent !== lyric) {
-    els.musicFooterLyric.textContent = lyric;
-    els.musicFooterLyric.classList.remove('is-scrolling');
-    requestAnimationFrame(updateMusicLyricScroll);
-  }
-  els.musicFooterLyricViewport.classList.toggle('hidden', !lyric);
+  els.musicFooterLyricViewport.classList.add('hidden');
+  els.musicFooterLyric.textContent = '';
   if (value.source) els.musicSourceLabel.textContent = `${value.source.label} · ${value.source.collection}`;
   els.musicFooterTrack.title = track ? `${value.paused === false ? '正在播放' : '已暂停'}：${els.musicFooterTitle.textContent}；点击打开播放器` : '打开音乐播放器';
 }

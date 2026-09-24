@@ -153,7 +153,7 @@ input, textarea, [contenteditable="true"] {
 #musicFooterTitle { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #musicFooterTitle.is-scrolling { width: max-content; max-width: none; overflow: visible; text-overflow: clip; animation: music-title-scroll var(--music-title-duration, 12s) linear infinite; }
 @keyframes music-title-scroll { from { transform: translateX(var(--music-title-viewport, 0px)); } to { transform: translateX(-100%); } }
-.music-footer-lyric-viewport { display: block; width: 100%; overflow: hidden; color: var(--muted); opacity: .75; font-size: 9px; white-space: nowrap; }
+.music-footer-lyric-viewport { display: none !important; width: 100%; overflow: hidden; color: var(--muted); opacity: .75; font-size: 9px; white-space: nowrap; }
 #musicFooterLyric { display: inline-block; white-space: nowrap; }
 #musicFooterLyric.is-scrolling { animation: music-lyric-scroll var(--music-lyric-duration, 8s) linear infinite alternate; }
 @keyframes music-lyric-scroll { 0%, 12% { transform: translateX(0); } 88%, 100% { transform: translateX(calc(-1 * var(--music-lyric-travel))); } }
