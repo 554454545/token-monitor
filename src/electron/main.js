@@ -23,6 +23,7 @@ const { exportFileSet, exportSignature, EXPORT_FILENAMES } = require('../shared/
 const { createDefaultTrayLayout, normalizeTrayLayout } = require('../shared/trayLayout');
 const fontSettingsApi = require('../shared/fontSettings');
 const motionPreferenceApi = require('./motionPreference');
+const { attachMusicPlayerWindow, loadPlaylist, searchMusic, musicPlayerCommand, openMusicPlayer } = require('./musicPlayer');
 const { clearBackgroundImage, getBackgroundImage, importBackgroundImage } = require('./backgroundImage');
 const { normalizeCodexAccountAliases } = require('../shared/accountDisplayPreferences');
 const { RESIZE_EDGES, resizeBounds } = require('./windowResize');
@@ -419,7 +420,7 @@ const CSP_HEADER = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self' data:",
+  "img-src 'self' data: https://*.hdslb.com",
   "font-src 'self'",
   "connect-src 'self'",
   "object-src 'none'",
@@ -6688,6 +6689,7 @@ function createWindow(boundsOverride, options = {}) {
   });
   mainWindow = win;
   mainWindowNativeBlurEnabled = null;
+  attachMusicPlayerWindow(win);
   mainWindowChrome = { collapsedFloatingBubble };
   applyMacSpaceBehavior();
   applyWindowsChrome(win, { round: true });
@@ -8770,6 +8772,10 @@ app.whenReady().then(() => {
     requestAppQuit();
   });
   ipcMain.handle('dashboard:open', () => { createDashboardWindow(); return true; });
+  ipcMain.handle('music:open', (event) => event.sender === mainWindow?.webContents && openMusicPlayer(mainWindow));
+  ipcMain.handle('music:playlist', (event, page) => event.sender === mainWindow?.webContents ? loadPlaylist(page) : null);
+  ipcMain.handle('music:search', (event, scope, query) => event.sender === mainWindow?.webContents ? searchMusic(scope, query) : null);
+  ipcMain.handle('music:command', musicPlayerCommand);
   ipcMain.handle('dashboard:getHistory', (_event, options) => getDashboardHistory(options));
   ipcMain.on('dashboard:ready', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);

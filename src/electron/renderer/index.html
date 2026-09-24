@@ -1818,8 +1818,50 @@
       <section id="limitsPanel" class="limits-panel hidden"></section>
       <section id="trendsPanel" class="trends-panel hidden"></section>
       <div id="sessionPagerHost" class="session-pager-host hidden"></div>
+      <section id="musicPanel" class="music-panel hidden" aria-label="音乐">
+        <div class="music-topline">
+          <span class="music-source-dot" aria-hidden="true">♫</span>
+          <div class="music-heading"><strong>我的音乐</strong><span id="musicSourceLabel">BILIBILI · 收藏夹</span></div>
+          <button id="musicSearchButton" class="music-list-button" type="button" aria-label="搜索 B 站歌曲" title="搜索 B 站歌曲">⌕</button>
+          <button id="musicQueueButton" class="music-list-button" type="button" aria-label="打开播放列表">☰ <span>列表</span></button>
+        </div>
+        <div id="musicNow" class="music-now">
+          <div class="music-cover"><img id="musicCover" alt="" /><span class="music-cover-placeholder" aria-hidden="true">♫</span></div>
+          <div class="music-track-copy"><strong id="musicTitle">选一首喜欢的歌</strong><span id="musicArtist">你的 B 站收藏夹已准备好</span></div>
+          <button id="musicPartsButton" class="music-parts-button hidden" type="button" aria-label="选择分 P"><span id="musicCurrentPart"></span><span aria-hidden="true">›</span></button>
+          <div class="music-timeline"><input id="musicSeek" type="range" min="0" max="100" value="0" aria-label="播放进度" /><div><span id="musicElapsed">0:00</span><span id="musicDuration">0:00</span></div></div>
+          <div class="music-playback-controls">
+            <button type="button" data-music-action="previous" aria-label="上一首" title="上一首"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M18 5 7 12l11 7V5Z"/></svg></button>
+            <button id="musicToggle" class="music-play-button" type="button" data-music-action="toggle" aria-label="播放或暂停" title="播放或暂停">▶</button>
+            <button type="button" data-music-action="next" aria-label="下一首" title="下一首"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M6 5l11 7-11 7V5Z"/></svg></button>
+            <div class="music-volume-control">
+              <button id="musicVolumeButton" type="button" aria-label="调节音量" aria-expanded="false" title="调节音量"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z" fill="none"/><path d="M17 9a5 5 0 0 1 0 6M19 6a9 9 0 0 1 0 12" fill="none"/></svg></button>
+              <div id="musicVolumePopover" class="music-volume-popover hidden"><span id="musicVolumeValue">70</span><input id="musicVolume" type="range" min="0" max="100" value="70" aria-label="音乐音量" aria-orientation="vertical" /></div>
+            </div>
+          </div>
+          <div class="music-bottomline"><span id="musicQuality">360P 优先</span><span id="musicStatus" role="status">从列表选择一首歌</span></div>
+        </div>
+        <div id="musicPartsPage" class="music-parts-page hidden">
+          <div class="music-parts-heading"><button id="musicPartsBack" type="button" aria-label="返回播放器">‹</button><strong>选择分 P</strong></div>
+          <div id="musicPartsList" class="music-parts-list"></div>
+        </div>
+        <div id="musicSearchPage" class="music-search-page hidden">
+          <div class="music-search-heading"><button id="musicSearchBack" type="button" aria-label="返回播放器">‹</button><strong>搜索 B 站歌曲</strong></div>
+          <input id="musicSearchInput" type="search" maxlength="80" placeholder="输入歌名或歌手" aria-label="搜索 B 站歌曲" />
+          <div id="musicSearchStatus" class="music-search-status">输入关键词搜索</div>
+          <div id="musicSearchList" class="music-track-list"></div>
+        </div>
+        <div id="musicQueue" class="music-queue hidden">
+          <div class="music-queue-heading"><strong>我的收藏</strong><span class="music-queue-actions"><button id="musicFavoriteSearchButton" type="button" aria-label="搜索我的收藏" title="搜索我的收藏">⌕</button><button id="musicQueueClose" type="button" aria-label="关闭列表">✕</button></span></div>
+          <input id="musicFavoriteSearchInput" class="music-favorite-search hidden" type="search" maxlength="80" placeholder="搜索我的收藏" aria-label="搜索我的收藏" />
+          <div id="musicFavoriteSearchStatus" class="music-search-status hidden"></div>
+          <div id="musicTrackList" class="music-track-list"></div>
+          <button id="musicLoadMore" class="music-load-more" type="button">加载更多</button>
+        </div>
+      </section>
       <footer class="footer">
         <div id="viewSwitcher" class="view-switcher"></div>
+        <button id="musicFooterTrack" class="music-footer-track hidden" type="button" title="打开音乐播放器"><span aria-hidden="true">♫</span><span class="music-footer-copy"><span id="musicFooterTitle"></span><span id="musicFooterLyricViewport" class="music-footer-lyric-viewport hidden"><span id="musicFooterLyric"></span></span></span></button>
         <div id="toolDetailFooter" class="tool-detail-footer hidden" role="group">
           <button id="toolDetailFooterTokens" class="tool-detail-footer-option" type="button">Tokens</button>
           <button id="toolDetailFooterModels" class="tool-detail-footer-option" type="button">Models</button>

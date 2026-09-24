@@ -359,11 +359,51 @@ const defaultAppearance = { glassOpacity: 68, glassBlur: 32, zoomFactor: 1, syst
 let viewSwitcherLongPressTimer = null;
 let viewSwitcherLongPressTriggered = false;
 let viewSwitcherHoverCloseTimer = null;
+let musicOpen = false;
 const els = {
   shell: document.querySelector('.shell'), status: document.getElementById('status'), liveDot: document.getElementById('liveDot'), tokenRateReveal: document.getElementById('tokenRateReveal'), liveTokenRate: document.getElementById('liveTokenRate'), liveTokenRateValue: document.getElementById('liveTokenRateValue'), totalTokens: document.getElementById('totalTokens'), totalTokensCompact: document.getElementById('totalTokensCompact'), cost: document.getElementById('cost'), homePanel: document.getElementById('homePanel'), breakdown: document.getElementById('breakdown'), sessionPagerHost: document.getElementById('sessionPagerHost'), serviceStatusPanel: document.getElementById('serviceStatusPanel'), limitsPanel: document.getElementById('limitsPanel'), trendsPanel: document.getElementById('trendsPanel'), viewSwitcher: document.getElementById('viewSwitcher'), pinButton: document.getElementById('pinButton'), utilityActions: document.getElementById('utilityActions'), settingsButton: document.getElementById('settingsButton'), settingsPanel: document.getElementById('settingsPanel'), languageInput: document.getElementById('languageInput'), currencyInput: document.getElementById('currencyInput'), currencyRateRow: document.getElementById('currencyRateRow'), currencyRateModeAuto: document.getElementById('currencyRateModeAuto'), currencyRateModeManual: document.getElementById('currencyRateModeManual'), currencyRateManualField: document.getElementById('currencyRateManualField'), currencyRateOverrideInput: document.getElementById('currencyRateOverrideInput'), currencyRateStatus: document.getElementById('currencyRateStatus'), hubUrlInput: document.getElementById('hubUrlInput'), secretInput: document.getElementById('secretInput'), deviceIdInput: document.getElementById('deviceIdInput'), limitProviderCheckboxes: document.getElementById('limitProviderCheckboxes'), limitsRefreshInput: document.getElementById('limitsRefreshInput'), limitsRefreshAdaptiveNote: document.getElementById('limitsRefreshAdaptiveNote'), showLimitSourceInput: document.getElementById('showLimitSourceInput'), maskLimitAccountEmailsInput: document.getElementById('maskLimitAccountEmailsInput'), showLimitUsedInputs: Array.from(document.querySelectorAll('input[name="showLimitUsed"]')), liveDotInput: document.getElementById('liveDotInput'), toolIconsInput: document.getElementById('toolIconsInput'), floatingBubbleInput: document.getElementById('floatingBubbleInput'), floatingBubbleTriggerInputs: Array.from(document.querySelectorAll('input[name="floatingBubbleTrigger"]')), floatingBubbleTriggerRow: document.getElementById('floatingBubbleTriggerRow'), floatingBubbleContentInput: document.getElementById('floatingBubbleContentInput'), floatingBubbleContentRow: document.getElementById('floatingBubbleContentRow'), floatingBubbleComposer: document.getElementById('floatingBubbleComposer'), floatingBubbleContent: document.getElementById('floatingBubbleContent'), discordRpcInput: document.getElementById('discordRpcInput'), windowBehaviorInput: document.getElementById('windowBehaviorInput'), keepAboveTaskbarInput: document.getElementById('keepAboveTaskbarInput'), keepAboveTaskbarRow: document.getElementById('keepAboveTaskbarRow'), showTrayIconInput: document.getElementById('showTrayIconInput'), showTrayProviderBadgeInput: document.getElementById('showTrayProviderBadgeInput'), hideAppIconInput: document.getElementById('hideAppIconInput'), hideAppIconRow: document.getElementById('hideAppIconRow'), hideAppIconOptions: document.getElementById('hideAppIconOptions'), trayModeInput: document.getElementById('trayModeInput'), trayContentInput: document.getElementById('trayContentInput'), trayComposer: document.getElementById('trayComposer'), windowToggleShortcutValue: document.getElementById('windowToggleShortcutValue'), windowToggleShortcutClearButton: document.getElementById('windowToggleShortcutClearButton'), windowToggleShortcutNote: document.getElementById('windowToggleShortcutNote'), glassInput: document.getElementById('glassInput'), blurInput: document.getElementById('blurInput'), zoomInput: document.getElementById('zoomInput'), resetGlassButton: document.getElementById('resetGlassButton'), resetDepthButton: document.getElementById('resetDepthButton'), resetZoomButton: document.getElementById('resetZoomButton'), saveSettingsButton: document.getElementById('saveSettingsButton'), clientDisplayList: document.getElementById('clientDisplayList'), wslScanInput: document.getElementById('wslScanInput'), wslScanRow: document.getElementById('wslScanRow'), wslPanel: document.getElementById('wslPanel'), openConfigButton: document.getElementById('openConfigButton'), exportAutoInput: document.getElementById('exportAutoInput'), exportAutoDetails: document.getElementById('exportAutoDetails'), exportAutoStatus: document.getElementById('exportAutoStatus'), exportDirLabel: document.getElementById('exportDirLabel'), exportPickDirButton: document.getElementById('exportPickDirButton'), exportIntervalInput: document.getElementById('exportIntervalInput'), exportNowButton: document.getElementById('exportNowButton'), refreshButton: document.getElementById('refreshButton'), minButton: document.getElementById('minButton'), closeButton: document.getElementById('closeButton'), floatingBubbleTab: document.getElementById('floatingBubbleTab'),
   subscriptionList: document.getElementById('subscriptionList'), subscriptionAddForm: document.getElementById('subscriptionAddForm'), subscriptionAddToggle: document.getElementById('subscriptionAddToggle'), subscriptionAddDetails: document.getElementById('subscriptionAddDetails'), subscriptionProviderInput: document.getElementById('subscriptionProviderInput'), subscriptionAccountInput: document.getElementById('subscriptionAccountInput'), subscriptionPlanNameInput: document.getElementById('subscriptionPlanNameInput'), subscriptionAmountInput: document.getElementById('subscriptionAmountInput'), subscriptionCurrencyInput: document.getElementById('subscriptionCurrencyInput'), subscriptionIntervalCountInput: document.getElementById('subscriptionIntervalCountInput'), subscriptionIntervalInput: document.getElementById('subscriptionIntervalInput'), subscriptionStartDateInput: document.getElementById('subscriptionStartDateInput'), subscriptionAutoRenewInput: document.getElementById('subscriptionAutoRenewInput'), subscriptionNextRenewalInput: document.getElementById('subscriptionNextRenewalInput'), subscriptionNote: document.getElementById('subscriptionNote'), subscriptionOrphanNotice: document.getElementById('subscriptionOrphanNotice'), subscriptionOrphanText: document.getElementById('subscriptionOrphanText'), subscriptionOrphanAdopt: document.getElementById('subscriptionOrphanAdopt'), subscriptionOrphanDiscard: document.getElementById('subscriptionOrphanDiscard'), subscriptionSyncError: document.getElementById('subscriptionSyncError'), subscriptionNextRenewalLabel: document.getElementById('subscriptionNextRenewalLabel'), subscriptionNextRenewalNote: document.getElementById('subscriptionNextRenewalNote'), subscriptionSubmit: document.getElementById('subscriptionSubmit'), subscriptionCancelEdit: document.getElementById('subscriptionCancelEdit'), subscriptionTotalRow: document.getElementById('subscriptionTotalRow'), subscriptionErrorMessage: document.getElementById('subscriptionErrorMessage'), subscriptionPlanFields: document.getElementById('subscriptionPlanFields'), subscriptionTopUpFields: document.getElementById('subscriptionTopUpFields'), subscriptionTopUpList: document.getElementById('subscriptionTopUpList'), subscriptionTopUpDateInput: document.getElementById('subscriptionTopUpDateInput'), subscriptionTopUpAmountInput: document.getElementById('subscriptionTopUpAmountInput'), subscriptionTopUpAddButton: document.getElementById('subscriptionTopUpAddButton'), subscriptionAmountRow: document.getElementById('subscriptionAmountRow'), subscriptionTopUpHeadingRow: document.getElementById('subscriptionTopUpHeadingRow'), subscriptionKindInputs: [...document.querySelectorAll('input[name="subscriptionKind"]')]
 };
 Object.assign(els, {
+  musicPanel: document.getElementById('musicPanel'),
+  musicNow: document.getElementById('musicNow'),
+  musicQueue: document.getElementById('musicQueue'),
+  musicSearchPage: document.getElementById('musicSearchPage'),
+  musicSearchButton: document.getElementById('musicSearchButton'),
+  musicSearchBack: document.getElementById('musicSearchBack'),
+  musicSearchInput: document.getElementById('musicSearchInput'),
+  musicSearchStatus: document.getElementById('musicSearchStatus'),
+  musicSearchList: document.getElementById('musicSearchList'),
+  musicFavoriteSearchButton: document.getElementById('musicFavoriteSearchButton'),
+  musicFavoriteSearchInput: document.getElementById('musicFavoriteSearchInput'),
+  musicFavoriteSearchStatus: document.getElementById('musicFavoriteSearchStatus'),
+  musicPartsPage: document.getElementById('musicPartsPage'),
+  musicPartsButton: document.getElementById('musicPartsButton'),
+  musicCurrentPart: document.getElementById('musicCurrentPart'),
+  musicPartsBack: document.getElementById('musicPartsBack'),
+  musicPartsList: document.getElementById('musicPartsList'),
+  musicQueueButton: document.getElementById('musicQueueButton'),
+  musicQueueClose: document.getElementById('musicQueueClose'),
+  musicTrackList: document.getElementById('musicTrackList'),
+  musicLoadMore: document.getElementById('musicLoadMore'),
+  musicCover: document.getElementById('musicCover'),
+  musicTitle: document.getElementById('musicTitle'),
+  musicArtist: document.getElementById('musicArtist'),
+  musicSeek: document.getElementById('musicSeek'),
+  musicElapsed: document.getElementById('musicElapsed'),
+  musicDuration: document.getElementById('musicDuration'),
+  musicToggle: document.getElementById('musicToggle'),
+  musicQuality: document.getElementById('musicQuality'),
+  musicStatus: document.getElementById('musicStatus'),
+  musicSourceLabel: document.getElementById('musicSourceLabel'),
+  musicVolumeButton: document.getElementById('musicVolumeButton'),
+  musicVolumePopover: document.getElementById('musicVolumePopover'),
+  musicVolume: document.getElementById('musicVolume'),
+  musicVolumeValue: document.getElementById('musicVolumeValue'),
+  musicFooterTrack: document.getElementById('musicFooterTrack'),
+  musicFooterTitle: document.getElementById('musicFooterTitle'),
+  musicFooterLyricViewport: document.getElementById('musicFooterLyricViewport'),
+  musicFooterLyric: document.getElementById('musicFooterLyric'),
   hideLimitAccountEmailsInput: document.getElementById('hideLimitAccountEmailsInput'),
   fixedPeriodMessage: document.getElementById('fixedPeriodMessage'),
   toolDetailFooter: document.getElementById('toolDetailFooter'),
@@ -7170,6 +7210,7 @@ function serviceStatusSurfaceVisible() {
 
 function openHomeSettings() {
   if (!els.settingsPanel) return;
+  if (musicOpen) setMusicOpen(false);
   els.settingsPanel.classList.remove('hidden');
   els.shell.classList.add('settings-open');
   els.shell.style.transform = 'translateZ(0)';
@@ -7184,6 +7225,7 @@ function openHomeSettings() {
 
 function openTrendSettings() {
   if (!els.settingsPanel) return;
+  if (musicOpen) setMusicOpen(false);
   els.settingsPanel.classList.remove('hidden');
   els.shell.classList.add('settings-open');
   els.shell.style.transform = 'translateZ(0)';
@@ -7208,6 +7250,7 @@ function resetSettingsListSearch() {
 
 function openSettingsPanel() {
   if (!els.settingsPanel) return;
+  if (musicOpen) setMusicOpen(false);
   if (state.viewSwitcherOpen) setViewSwitcherOpen(false);
   els.settingsPanel.classList.remove('hidden');
   els.shell.classList.add('settings-open');
@@ -7219,6 +7262,7 @@ function openSettingsPanel() {
 
 function openViewFromTray(viewId) {
   if (!availableBreakdownIds().includes(viewId)) return;
+  if (musicOpen) setMusicOpen(false);
   if (state.viewSwitcherOpen) setViewSwitcherOpen(false);
   stopWindowShortcutRecording();
   resetSettingsListSearch();
@@ -7597,11 +7641,270 @@ function setViewSwitcherOpen(open, { focusMenu = false, focusDisclosure = false 
   renderViewSwitcher({ focusMenu, focusDisclosure });
 }
 
+let musicPlaylist = [];
+let musicHasMore = true;
+let musicQueueOpen = false;
+let favoriteSearchResults = null;
+const searchTimers = { all: null, favorites: null };
+const searchRequests = { all: 0, favorites: 0 };
+let musicPartsOpen = false;
+let musicPartsData = [];
+let musicPartIndex = 0;
+let musicPage = 1;
+let displayedMusicId = '';
+
+function musicTime(seconds) {
+  const value = Math.max(0, Math.floor(Number(seconds) || 0));
+  return Math.floor(value / 60) + ':' + String(value % 60).padStart(2, '0');
+}
+
+function showMusicPage(page = 'now') {
+  musicQueueOpen = page === 'queue';
+  musicPartsOpen = page === 'parts';
+  els.musicSearchPage.classList.toggle('hidden', page !== 'search');
+  els.musicNow.classList.toggle('hidden', page !== 'now');
+  els.musicQueue.classList.toggle('hidden', !musicQueueOpen);
+  els.musicPartsPage.classList.toggle('hidden', !musicPartsOpen);
+  els.musicQueueButton.setAttribute('aria-expanded', String(musicQueueOpen));
+}
+
+function showMusicQueue(open) { showMusicPage(open ? 'queue' : 'now'); }
+
+function renderMusicParts() {
+  const fragment = document.createDocumentFragment();
+  musicPartsData.forEach((part, index) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'music-part-item' + (index === musicPartIndex ? ' is-current' : '');
+    const title = document.createElement('span');
+    title.textContent = `P${index + 1} · ${part.title}`;
+    const duration = document.createElement('small');
+    duration.textContent = musicTime(part.duration);
+    item.append(title, duration);
+    item.addEventListener('click', () => {
+      showMusicPage('now');
+      void window.tokenMonitor.musicCommand('part', index);
+    });
+    fragment.append(item);
+  });
+  els.musicPartsList.replaceChildren(fragment);
+}
+
+function renderMusicItems(container, items, selectedId, select) {
+  const fragment = document.createDocumentFragment();
+  items.forEach((track) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'music-track-item' + (track.id === selectedId ? ' is-current' : '');
+    const cover = document.createElement('img');
+    cover.alt = '';
+    if (track.cover) cover.src = track.cover;
+    cover.addEventListener('error', () => cover.removeAttribute('src'), { once: true });
+    const copy = document.createElement('span');
+    copy.className = 'music-track-item-copy';
+    const title = document.createElement('strong');
+    title.textContent = track.title;
+    const artist = document.createElement('span');
+    artist.textContent = track.artist;
+    copy.append(title, artist);
+    const duration = document.createElement('span');
+    duration.className = 'music-track-item-duration';
+    duration.textContent = musicTime(track.duration);
+    item.append(cover, copy, duration);
+    item.addEventListener('click', () => { select(track); showMusicPage('now'); });
+    fragment.append(item);
+  });
+  container.replaceChildren(fragment);
+}
+
+function renderMusicQueue(index = -1) {
+  const items = favoriteSearchResults || musicPlaylist;
+  renderMusicItems(els.musicTrackList, items, musicPlaylist[index]?.id, (track) => {
+    void window.tokenMonitor.musicCommand(favoriteSearchResults ? 'select-search' : 'select',
+      favoriteSearchResults ? { scope: 'favorites', id: track.id } : track.id);
+  });
+  els.musicLoadMore.classList.toggle('hidden', Boolean(favoriteSearchResults) || !musicHasMore);
+}
+
+async function runMusicSearch(scope) {
+  const input = scope === 'all' ? els.musicSearchInput : els.musicFavoriteSearchInput;
+  const status = scope === 'all' ? els.musicSearchStatus : els.musicFavoriteSearchStatus;
+  const query = input.value.trim();
+  const request = ++searchRequests[scope];
+  if (!query) {
+    status.textContent = scope === 'all' ? '输入关键词搜索' : '';
+    if (scope === 'all') els.musicSearchList.replaceChildren();
+    else { favoriteSearchResults = null; renderMusicQueue(); }
+    return;
+  }
+  status.textContent = '正在搜索…';
+  try {
+    const result = await window.tokenMonitor.searchMusic(scope, query);
+    if (request !== searchRequests[scope]) return;
+    const items = result?.items || [];
+    status.textContent = items.length ? `找到 ${items.length} 首` : '没有匹配的歌曲';
+    if (scope === 'all') {
+      renderMusicItems(els.musicSearchList, items, displayedMusicId, (track) => {
+        void window.tokenMonitor.musicCommand('select-search', { scope: 'all', id: track.id });
+      });
+    } else { favoriteSearchResults = items; renderMusicQueue(); }
+  } catch (error) {
+    if (request === searchRequests[scope]) status.textContent = '搜索失败：' + error.message;
+  }
+}
+
+function scheduleMusicSearch(scope) {
+  clearTimeout(searchTimers[scope]);
+  searchRequests[scope] += 1;
+  searchTimers[scope] = setTimeout(() => { void runMusicSearch(scope); }, 350);
+}
+
+function updateMusicLyricScroll() {
+  const lyric = els.musicFooterLyric;
+  lyric.classList.remove('is-scrolling');
+  if (els.musicFooterTrack.classList.contains('hidden') || els.musicFooterLyricViewport.classList.contains('hidden')) return;
+  const travel = Math.max(0, lyric.scrollWidth - els.musicFooterLyricViewport.clientWidth);
+  if (!travel) return;
+  lyric.style.setProperty('--music-lyric-travel', `${travel}px`);
+  lyric.style.setProperty('--music-lyric-duration', `${Math.max(5, travel / 18)}s`);
+  lyric.classList.add('is-scrolling');
+}
+
+function renderMusicState(value = {}) {
+  const track = value.track || null;
+  if ((track?.id || '') !== displayedMusicId || (track && els.musicTitle.textContent !== track.title)) {
+    displayedMusicId = track?.id || '';
+    els.musicTitle.textContent = track?.title || '选一首喜欢的歌';
+    els.musicArtist.textContent = track?.artist || '你的 B 站收藏夹已准备好';
+    if (track?.cover) els.musicCover.src = track.cover;
+    else els.musicCover.removeAttribute('src');
+    renderMusicQueue(value.index);
+  }
+  const duration = Math.max(0, Number(value.duration) || track?.duration || 0);
+  const elapsed = Math.min(duration, Math.max(0, Number(value.currentTime) || 0));
+  els.musicSeek.max = String(duration || 100);
+  els.musicSeek.value = String(elapsed);
+  els.musicSeek.disabled = !track || duration <= 0;
+  els.musicElapsed.textContent = musicTime(elapsed);
+  els.musicDuration.textContent = musicTime(duration);
+  els.musicToggle.textContent = value.paused === false ? '❚❚' : '▶';
+  els.musicStatus.textContent = value.status || '从列表选择一首歌';
+  els.musicQuality.textContent = value.qualityApplied ? '360P' : '360P 优先';
+  const parts = Array.isArray(value.parts) ? value.parts : [];
+  const partsKey = JSON.stringify(parts);
+  const partIndex = Number(value.partIndex) || 0;
+  if (els.musicPartsButton.dataset.parts !== partsKey || musicPartIndex !== partIndex) {
+    els.musicPartsButton.dataset.parts = partsKey;
+    musicPartsData = parts;
+    musicPartIndex = partIndex;
+    renderMusicParts();
+  }
+  els.musicPartsButton.classList.toggle('hidden', parts.length < 2);
+  els.musicCurrentPart.textContent = parts[partIndex] ? `P${partIndex + 1} · ${parts[partIndex].title}` : '';
+  if (parts.length < 2 && musicPartsOpen) showMusicPage('now');
+  const volume = Math.round(Math.max(0, Math.min(1, Number(value.volume) || 0)) * 100);
+  if (document.activeElement !== els.musicVolume) els.musicVolume.value = String(volume);
+  els.musicVolumeValue.textContent = String(volume);
+  els.musicFooterTrack.classList.toggle('hidden', !track || musicOpen);
+  els.musicFooterTitle.textContent = track ? (parts.length > 1 ? `P${(value.partIndex || 0) + 1} · ` : '') + track.title : '';
+  const lyric = typeof value.lyric === 'string' ? value.lyric : '';
+  if (els.musicFooterLyric.textContent !== lyric) {
+    els.musicFooterLyric.textContent = lyric;
+    els.musicFooterLyric.classList.remove('is-scrolling');
+    requestAnimationFrame(updateMusicLyricScroll);
+  }
+  els.musicFooterLyricViewport.classList.toggle('hidden', !lyric);
+  if (value.source) els.musicSourceLabel.textContent = `${value.source.label} · ${value.source.collection}`;
+  els.musicFooterTrack.title = track ? `${value.paused === false ? '正在播放' : '已暂停'}：${els.musicFooterTitle.textContent}；点击打开播放器` : '打开音乐播放器';
+}
+
+async function setMusicOpen(open) {
+  if (musicOpen === open) return;
+  musicOpen = open;
+  els.shell.classList.toggle('music-open', open);
+  els.musicPanel.classList.toggle('hidden', !open);
+  els.musicFooterTrack.classList.toggle('hidden', open || !displayedMusicId);
+  if (!open) requestAnimationFrame(updateMusicLyricScroll);
+  renderViewSwitcher();
+  if (!open) return;
+  try {
+    await window.tokenMonitor.openMusic();
+    const result = await window.tokenMonitor.getMusicPlaylist(1);
+    if (result) {
+      musicPlaylist = result.items || [];
+      musicHasMore = result.hasMore === true;
+      renderMusicQueue(result.index);
+    }
+  } catch (error) {
+    els.musicStatus.textContent = '收藏列表加载失败：' + error.message;
+  }
+}
+
+els.musicCover.addEventListener('error', () => els.musicCover.removeAttribute('src'));
+window.tokenMonitor.onMusicState(renderMusicState);
+window.tokenMonitor.onMusicPlaylist((value) => {
+  musicPlaylist = value.items || [];
+  musicHasMore = value.hasMore === true;
+  renderMusicQueue(value.index);
+});
+els.musicQueueButton.addEventListener('click', () => showMusicQueue(!musicQueueOpen));
+els.musicSearchButton.addEventListener('click', () => { showMusicPage('search'); els.musicSearchInput.focus(); });
+els.musicSearchBack.addEventListener('click', () => showMusicPage('now'));
+els.musicSearchInput.addEventListener('input', () => scheduleMusicSearch('all'));
+els.musicFavoriteSearchButton.addEventListener('click', () => {
+  const open = els.musicFavoriteSearchInput.classList.toggle('hidden') === false;
+  els.musicFavoriteSearchStatus.classList.toggle('hidden', !open);
+  if (open) els.musicFavoriteSearchInput.focus();
+  else { els.musicFavoriteSearchInput.value = ''; void runMusicSearch('favorites'); }
+});
+els.musicFavoriteSearchInput.addEventListener('input', () => scheduleMusicSearch('favorites'));
+els.musicQueueClose.addEventListener('click', () => showMusicQueue(false));
+els.musicLoadMore.addEventListener('click', async () => {
+  els.musicLoadMore.disabled = true;
+  try {
+    const result = await window.tokenMonitor.getMusicPlaylist(++musicPage);
+    musicPlaylist = result.items || [];
+    musicHasMore = result.hasMore === true;
+    renderMusicQueue(result.index);
+  } catch (error) {
+    musicPage -= 1;
+    els.musicStatus.textContent = '加载更多失败：' + error.message;
+  } finally {
+    els.musicLoadMore.disabled = false;
+  }
+});
+els.musicFooterTrack.addEventListener('click', () => { void setMusicOpen(true); });
+els.musicVolumeButton.addEventListener('click', () => {
+  const open = els.musicVolumePopover.classList.toggle('hidden') === false;
+  els.musicVolumeButton.setAttribute('aria-expanded', String(open));
+});
+document.addEventListener('pointerdown', (event) => {
+  if (!event.target.closest('.music-volume-control')) {
+    els.musicVolumePopover.classList.add('hidden');
+    els.musicVolumeButton.setAttribute('aria-expanded', 'false');
+  }
+});
+els.musicPartsButton.addEventListener('click', () => showMusicPage('parts'));
+els.musicPartsBack.addEventListener('click', () => showMusicPage('now'));
+els.musicVolume.addEventListener('input', () => {
+  els.musicVolumeValue.textContent = els.musicVolume.value;
+  void window.tokenMonitor.musicCommand('volume', Number(els.musicVolume.value) / 100);
+});
+els.musicSeek.addEventListener('change', () => {
+  void window.tokenMonitor.musicCommand('seek', Number(els.musicSeek.value));
+});
+els.musicPanel.addEventListener('click', (event) => {
+  const action = event.target.closest('[data-music-action]')?.dataset.musicAction;
+  if (!action) return;
+  if (action === 'toggle' && !displayedMusicId) { showMusicQueue(true); return; }
+  void window.tokenMonitor.musicCommand(action);
+});
+
 function renderViewSwitcher({ focusMenu = false, focusDisclosure = false } = {}) {
   if (!els.viewSwitcher) return;
   const order = visibleBreakdownOrder();
   const currentId = order.includes(state.breakdown) ? state.breakdown : (order[0] || 'home');
-  const currentLabel = viewLabelById(currentId);
+  const currentLabel = musicOpen ? t('views.music') : viewLabelById(currentId);
   const nextId = nextBreakdown(currentId);
   const nextLabel = viewLabelById(nextId);
 
@@ -7610,7 +7913,12 @@ function renderViewSwitcher({ focusMenu = false, focusDisclosure = false } = {})
   current.className = 'view-switcher-current';
   current.title = t('views.switcher.next', { view: nextLabel });
   current.setAttribute('aria-label', current.title);
-  current.append(viewSwitcherIcon(currentId));
+  if (musicOpen) {
+    const icon = document.createElement('span');
+    icon.className = 'view-switcher-music-icon';
+    icon.textContent = '♫';
+    current.append(icon);
+  } else current.append(viewSwitcherIcon(currentId));
   const label = document.createElement('span');
   label.className = 'view-switcher-label';
   label.textContent = currentLabel;
@@ -7622,7 +7930,8 @@ function renderViewSwitcher({ focusMenu = false, focusDisclosure = false } = {})
     }
     state.viewSwitcherOpen = false;
     updateViewSwitcherOpenState();
-    renderBreakdownChange(nextBreakdown(state.breakdown));
+    if (musicOpen) void setMusicOpen(false);
+    else renderBreakdownChange(nextBreakdown(state.breakdown));
   });
   current.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
@@ -7666,9 +7975,28 @@ function renderViewSwitcher({ focusMenu = false, focusDisclosure = false } = {})
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', t('views.switcher.choose'));
   menu.setAttribute('aria-hidden', String(!state.viewSwitcherOpen));
+  const musicItem = document.createElement('button');
+  musicItem.type = 'button';
+  musicItem.className = `view-switcher-menu-item${musicOpen ? ' is-current' : ''}`;
+  musicItem.setAttribute('role', 'menuitemradio');
+  musicItem.setAttribute('aria-checked', String(musicOpen));
+  musicItem.tabIndex = state.viewSwitcherOpen ? (musicOpen ? 0 : -1) : -1;
+  const musicIcon = document.createElement('span');
+  musicIcon.className = 'view-switcher-music-icon';
+  musicIcon.textContent = '♫';
+  musicIcon.setAttribute('aria-hidden', 'true');
+  const musicLabel = document.createElement('span');
+  musicLabel.className = 'view-switcher-menu-label';
+  musicLabel.textContent = t('views.music');
+  musicItem.append(musicIcon, musicLabel);
+  musicItem.addEventListener('click', () => {
+    setViewSwitcherOpen(false);
+    void setMusicOpen(true);
+  });
+  menu.append(musicItem);
   for (const id of order) {
     const item = document.createElement('button');
-    const active = id === currentId;
+    const active = !musicOpen && id === currentId;
     item.type = 'button';
     item.className = `view-switcher-menu-item${active ? ' is-current' : ''}`;
     item.dataset.view = id;
@@ -7684,6 +8012,7 @@ function renderViewSwitcher({ focusMenu = false, focusDisclosure = false } = {})
     item.addEventListener('click', () => {
       state.viewSwitcherOpen = false;
       updateViewSwitcherOpenState();
+      if (musicOpen) void setMusicOpen(false);
       if (id === state.breakdown) renderViewSwitcher({ focusDisclosure: true });
       else renderBreakdownChange(id);
     });
@@ -13193,6 +13522,7 @@ els.pinButton.addEventListener('click', (event) => {
 });
 els.settingsButton.addEventListener('click', (event) => {
   if (state.viewSwitcherOpen) setViewSwitcherOpen(false);
+  if (musicOpen) setMusicOpen(false);
   els.settingsPanel.classList.toggle('hidden');
   const settingsOpen = isSettingsPanelOpen();
   // Settings is an overlay over a surface that keeps rendering behind it, so

@@ -24,6 +24,20 @@ contextBridge.exposeInMainWorld('tokenMonitor', {
   getServiceStatus: (options) => ipcRenderer.invoke('serviceStatus:get', options),
   getCodexResetForecast: (options) => ipcRenderer.invoke('codexResetForecast:get', options),
   openDashboard: () => ipcRenderer.invoke('dashboard:open'),
+  openMusic: () => ipcRenderer.invoke('music:open'),
+  getMusicPlaylist: (page) => ipcRenderer.invoke('music:playlist', page),
+  searchMusic: (scope, query) => ipcRenderer.invoke('music:search', scope, query),
+  musicCommand: (action, value) => ipcRenderer.invoke('music:command', action, value),
+  onMusicState: (callback) => {
+    const listener = (_event, value) => { try { callback(value); } catch (_) {} };
+    ipcRenderer.on('music:state', listener);
+    return () => ipcRenderer.removeListener('music:state', listener);
+  },
+  onMusicPlaylist: (callback) => {
+    const listener = (_event, value) => { try { callback(value); } catch (_) {} };
+    ipcRenderer.on('music:playlist', listener);
+    return () => ipcRenderer.removeListener('music:playlist', listener);
+  },
   getDashboardHistory: (options) => ipcRenderer.invoke('dashboard:getHistory', options),
   onDashboardHistoryChanged: (callback) => {
     const listener = () => { try { callback(); } catch (_) {} };
