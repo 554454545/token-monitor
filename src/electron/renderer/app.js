@@ -393,6 +393,12 @@ Object.assign(els, {
   musicCover: document.getElementById('musicCover'),
   musicTitle: document.getElementById('musicTitle'),
   musicArtist: document.getElementById('musicArtist'),
+  musicNowLyric: document.getElementById('musicNowLyric'),
+  musicLyricTrack: document.getElementById('musicLyricTrack'),
+  musicNowLyricText: document.getElementById('musicNowLyricText'),
+  musicLyricPrevious: document.getElementById('musicLyricPrevious'),
+  musicLyricNext: document.getElementById('musicLyricNext'),
+  musicLyricFuture: document.getElementById('musicLyricFuture'),
   musicSeek: document.getElementById('musicSeek'),
   musicElapsed: document.getElementById('musicElapsed'),
   musicDuration: document.getElementById('musicDuration'),
@@ -7648,6 +7654,7 @@ function setViewSwitcherOpen(open, { focusMenu = false, focusDisclosure = false 
 let musicPlaylist = [];
 let musicHasMore = true;
 let musicQueueOpen = false;
+let musicQueueNeedsCurrentScroll = false;
 let favoriteSearchResults = null;
 const searchTimers = { all: null, favorites: null };
 const searchRequests = { all: 0, favorites: 0 };
@@ -7658,14 +7665,16 @@ let musicPartIndex = 0;
 let musicPage = 1;
 let displayedMusicId = '';
 let musicSeeking = false;
-let musicSeekHoldUntil = 0;
-let musicSeekTarget = 0;
+let musicPendingSeek = null;
+let musicLyricIndex = -1;
+let musicLyricTransitionTimer = null;
+let musicLyricTransitionCue = null;
 let musicClock = { elapsed: 0, duration: 0, playing: false, at: performance.now() };
 let musicTogglePendingUntil = 0;
 let musicToggleTarget = false;
 
 function updateMusicClock() {
-  if (musicSeeking || Date.now() < musicSeekHoldUntil) return;
+  if (musicSeeking) return;
   const elapsed = Math.min(musicClock.duration, musicClock.elapsed + (musicClock.playing ? (performance.now() - musicClock.at) / 1000 : 0));
   els.musicSeek.value = String(elapsed);
   els.musicElapsed.textContent = musicTime(elapsed);
@@ -7687,7 +7696,19 @@ function showMusicPage(page = 'now') {
   els.musicQueueButton.setAttribute('aria-expanded', String(musicQueueOpen));
 }
 
-function showMusicQueue(open) { showMusicPage(open ? 'queue' : 'now'); }
+function scrollMusicQueueToCurrent() {
+  const current = els.musicTrackList.querySelector('.music-track-item.is-current');
+  if (!current) return false;
+  const list = els.musicTrackList;
+  list.scrollTop += current.getBoundingClientRect().top - list.getBoundingClientRect().top;
+  return true;
+}
+
+function showMusicQueue(open) {
+  showMusicPage(open ? 'queue' : 'now');
+  musicQueueNeedsCurrentScroll = open;
+  if (open && scrollMusicQueueToCurrent()) musicQueueNeedsCurrentScroll = false;
+}
 
 function renderMusicParts() {
   const fragment = document.createDocumentFragment();
@@ -7738,10 +7759,13 @@ function renderMusicItems(container, items, selectedId, select) {
 
 function renderMusicQueue(index = -1) {
   const items = favoriteSearchResults || musicPlaylist;
-  renderMusicItems(els.musicTrackList, items, musicPlaylist[index]?.id, (track) => {
+  const previousScroll = els.musicTrackList.scrollTop;
+  renderMusicItems(els.musicTrackList, items, musicPlaylist[index]?.id || displayedMusicId, (track) => {
     void window.tokenMonitor.musicCommand(favoriteSearchResults ? 'select-search' : 'select',
       favoriteSearchResults ? { scope: 'favorites', id: track.id } : track.id);
   });
+  els.musicTrackList.scrollTop = previousScroll;
+  if (musicQueueOpen && musicQueueNeedsCurrentScroll && scrollMusicQueueToCurrent()) musicQueueNeedsCurrentScroll = false;
   els.musicLoadMore.classList.toggle('hidden', Boolean(favoriteSearchResults) || !musicHasMore);
 }
 
@@ -7818,12 +7842,30 @@ function updateMusicLyricScroll() {
   lyric.classList.add('is-scrolling');
 }
 
+function setMusicLyricLines(cue) {
+  els.musicLyricPrevious.textContent = cue?.previous || '';
+  els.musicNowLyricText.textContent = cue?.current || '';
+  els.musicLyricNext.textContent = cue?.next || '';
+  els.musicLyricFuture.textContent = cue?.future || '';
+}
+
+function finishMusicLyricTransition() {
+  if (musicLyricTransitionTimer === null) return;
+  clearTimeout(musicLyricTransitionTimer);
+  musicLyricTransitionTimer = null;
+  els.musicNowLyric.classList.remove('is-advancing');
+  setMusicLyricLines(musicLyricTransitionCue);
+  musicLyricTransitionCue = null;
+}
+
 function renderMusicState(value = {}) {
   const track = value.track || null;
   if ((track?.id || '') !== displayedMusicId || (track && els.musicTitle.textContent !== track.title)) {
     displayedMusicId = track?.id || '';
     musicSeeking = false;
-    musicSeekHoldUntil = 0;
+    musicPendingSeek = null;
+    finishMusicLyricTransition();
+    musicLyricIndex = -1;
     els.musicTitle.textContent = track?.title || '选一首喜欢的歌';
     els.musicArtist.textContent = track?.artist || '你的 B 站收藏夹已准备好';
     if (track?.cover) els.musicCover.src = track.cover;
@@ -7834,9 +7876,17 @@ function renderMusicState(value = {}) {
   const elapsed = Math.min(duration, Math.max(0, Number(value.currentTime) || 0));
   els.musicSeek.max = String(duration || 100);
   els.musicSeek.disabled = !track || duration <= 0;
-  if (Math.abs(elapsed - musicSeekTarget) < 1.5) musicSeekHoldUntil = 0;
-  if (!musicSeeking && Date.now() >= musicSeekHoldUntil) {
-    musicClock = { elapsed, duration, playing: value.paused === false, at: performance.now() };
+  if (musicPendingSeek) {
+    const expected = musicPendingSeek.target + (value.paused === false ? (performance.now() - musicPendingSeek.at) / 1000 : 0);
+    if (Math.abs(elapsed - expected) < 2 || performance.now() - musicPendingSeek.at > 4000) musicPendingSeek = null;
+  }
+  if (!musicSeeking && !musicPendingSeek) {
+    const predicted = musicClock.elapsed + (musicClock.playing ? (performance.now() - musicClock.at) / 1000 : 0);
+    if (!musicClock.playing || Math.abs(elapsed - predicted) > 0.7 || musicClock.duration !== duration) {
+      musicClock = { elapsed, duration, playing: value.paused === false, at: performance.now() };
+    } else {
+      musicClock.playing = value.paused === false;
+    }
     updateMusicClock();
   }
   els.musicDuration.textContent = musicTime(duration);
@@ -7873,6 +7923,27 @@ function renderMusicState(value = {}) {
     requestAnimationFrame(updateMusicLyricScroll);
   }
   const lyric = typeof value.lyric === 'string' ? value.lyric : '';
+  const cue = value.lyricWindow;
+  if (cue && cue.index !== musicLyricIndex) {
+    finishMusicLyricTransition();
+    const advance = musicOpen && value.paused === false && !musicSeeking && !musicPendingSeek && musicLyricIndex >= 0 &&
+      cue.index === musicLyricIndex + 1 && cue.current === els.musicLyricNext.textContent &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (advance) {
+      musicLyricTransitionCue = cue;
+      void els.musicLyricTrack.offsetWidth;
+      els.musicNowLyric.classList.add('is-advancing');
+      musicLyricTransitionTimer = setTimeout(finishMusicLyricTransition, 400);
+    } else {
+      setMusicLyricLines(cue);
+    }
+    musicLyricIndex = cue.index;
+  } else if (!cue && (musicLyricIndex !== -1 || els.musicNowLyricText.textContent)) {
+    finishMusicLyricTransition();
+    musicLyricIndex = -1;
+    setMusicLyricLines(null);
+  }
+  els.musicNowLyric.classList.toggle('hidden', !track || !value.hasCaptions);
   if (els.musicFooterLyric.textContent !== lyric) {
     els.musicFooterLyric.textContent = lyric;
     els.musicFooterLyric.classList.remove('is-scrolling');
@@ -7886,6 +7957,7 @@ function renderMusicState(value = {}) {
 async function setMusicOpen(open) {
   if (musicOpen === open) return;
   musicOpen = open;
+  if (open) setPeriodMenuOpen(false);
   els.shell.classList.toggle('music-open', open);
   els.musicPanel.classList.toggle('hidden', !open);
   els.musicFooterTrack.classList.toggle('hidden', open || !displayedMusicId);
@@ -7977,11 +8049,23 @@ els.musicSeek.addEventListener('input', () => {
 });
 els.musicSeek.addEventListener('change', () => {
   musicSeeking = false;
-  musicSeekTarget = Number(els.musicSeek.value);
-  musicSeekHoldUntil = Date.now() + 1800;
-  els.musicElapsed.textContent = musicTime(musicSeekTarget);
-  void window.tokenMonitor.musicCommand('seek', musicSeekTarget);
+  const target = Number(els.musicSeek.value);
+  const pending = { target, at: performance.now() };
+  musicPendingSeek = pending;
+  musicClock = { elapsed: target, duration: musicClock.duration, playing: musicClock.playing, at: pending.at };
+  updateMusicClock();
+  void window.tokenMonitor.musicCommand('seek', target).then((ok) => {
+    if (!ok && musicPendingSeek === pending) musicPendingSeek = null;
+  });
 });
+document.addEventListener('keydown', (event) => {
+  if (!musicOpen || event.code !== 'Space' || event.repeat || event.isComposing || event.defaultPrevented) return;
+  if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || !document.hasFocus() || !els.shell.matches(':hover')) return;
+  if (event.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
+  event.preventDefault();
+  els.musicToggle.click();
+});
+
 els.musicPanel.addEventListener('click', (event) => {
   const action = event.target.closest('[data-music-action]')?.dataset.musicAction;
   if (!action) return;

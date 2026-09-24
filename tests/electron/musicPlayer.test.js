@@ -6,16 +6,16 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 process.env.TOKEN_MONITOR_BILIBILI_FAVORITES_ID = '123';
-const { allowedUrl, coverUrl, subtitleUrl, captionAt, loadPlaylist, searchMusic, playerScript } = require('../../src/electron/musicPlayer');
+const { videoBvidFromUrl, shouldAdvanceFromPlayback, allowedUrl, coverUrl, subtitleUrl, selectMusicSubtitle, captionAt, captionWindow, loadPlaylist, searchMusic, playerScript } = require('../../src/electron/musicPlayer');
 
 test('music titlebar back button restores the previous Token view', () => {
   const root = path.join(__dirname, '..', '..', 'src', 'electron', 'renderer');
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
   const renderer = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
-  assert.match(html, /id="musicBackButton"[^>]*aria-label="返回 Token 主界面"/);
-  assert.match(css, /\.shell\.music-open \.music-back-button/);
-  assert.match(css, /\.music-back-button \{ display: none; \}/);
+  assert.match(html, /<div class="music-topline">\s*<button id="musicBackButton"[^>]*aria-label="返回 Token 主界面"/);
+  assert.doesNotMatch(html.match(/<div class="app-title">[\s\S]*?<\/div>/)?.[0] || '', /musicBackButton/);
+  assert.match(css, /\.shell\.music-open \.title-controls \.tabs[^}]*display: none !important/);
   assert.match(renderer, /musicBackButton\.addEventListener\('click', \(\) => \{ void setMusicOpen\(false\); \}\)/);
 });
 
@@ -39,6 +39,20 @@ test('embedded music page accepts only secure Bilibili navigation', () => {
   assert.equal(allowedUrl('http://www.bilibili.com/video/BV1example'), false);
   assert.equal(allowedUrl('https://bilibili.com.evil.example/'), false);
   assert.equal(allowedUrl('file:///etc/passwd'), false);
+});
+
+test("Bilibili autoplay and near-end rollover advance Token own queue", () => {
+  assert.equal(videoBvidFromUrl('https://www.bilibili.com/video/BV1Qp4y1R7p2?p=1'), 'BV1Qp4y1R7p2');
+  assert.equal(videoBvidFromUrl('https://example.com/watch'), '');
+  const previous = { duration: 227, currentTime: 224 };
+  assert.equal(shouldAdvanceFromPlayback(previous, { paused: false, currentTime: 1, videoBvid: 'BV1Qp4y1R7p2' }, 'BV1Qp4y1R7p2'), true);
+  assert.equal(shouldAdvanceFromPlayback(previous, { paused: false, currentTime: 225, videoBvid: 'BV1Qp4y1R7p2' }, 'BV1Qp4y1R7p2'), false);
+  assert.equal(shouldAdvanceFromPlayback(previous, { paused: true, currentTime: 0, videoBvid: 'BV1Qp4y1R7p2' }, 'BV1Qp4y1R7p2'), false);
+  assert.equal(shouldAdvanceFromPlayback(previous, { paused: false, currentTime: 0, videoBvid: 'BV1vo4y1M7kW' }, 'BV1Qp4y1R7p2'), true);
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'musicPlayer.js'), 'utf8');
+  assert.match(source, /did-navigate-in-page/);
+  assert.match(source, /const commandRevision = playbackRevision;[\s\S]*?commandRevision !== playbackRevision/);
+  assert.doesNotMatch(source, /handledEnd = false; setStatus\('正在播放'\)/);
 });
 
 test('playback button reports actual media success and pause', async () => {
@@ -184,6 +198,21 @@ test('multi-part picker stays inside the widget instead of using a native select
 });
 
 
+test('subtitle requests use the logged-in Bilibili player session when available', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'musicPlayer.js'), 'utf8');
+  assert.match(source, /browserSession \? browserSession\.fetch\(url, \{ \.\.\.options, credentials: 'include' \}\)/);
+  assert.match(source, /const response = await fetchMusicSubtitle\(/);
+  assert.match(source, /const captionsResponse = await fetchMusicSubtitle\(url\)/);
+});
+
+test('space toggles music only when the Token window is focused and hovered', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'renderer', 'app.js'), 'utf8');
+  assert.match(app, /!musicOpen \|\| event\.code !== 'Space' \|\| event\.repeat \|\| event\.isComposing/);
+  assert.match(app, /!document\.hasFocus\(\) \|\| !els\.shell\.matches\(':hover'\)/);
+  assert.match(app, /event\.target\?\.closest\?\.\('input, textarea, select, \[contenteditable\], \[role="textbox"\]'\)/);
+  assert.match(app, /event\.preventDefault\(\);\s*els\.musicToggle\.click\(\)/);
+});
+
 test('subtitle URL stays on the Bilibili CDN and captions follow playback time', () => {
   assert.equal(subtitleUrl('//aisubtitle.hdslb.com/bfs/subtitle/test.json'), 'https://aisubtitle.hdslb.com/bfs/subtitle/test.json');
   assert.equal(subtitleUrl('https://evil.example/test.json'), '');
@@ -191,6 +220,51 @@ test('subtitle URL stays on the Bilibili CDN and captions follow playback time',
   assert.equal(captionAt(rows, 2), '第一句');
   assert.equal(captionAt(rows, 3), '第二句');
   assert.equal(captionAt(rows, 7), '');
+});
+
+test('subtitle track selection prefers manual Chinese and rejects unrelated languages', () => {
+  const ai = { lan: 'ai-zh', lan_doc: '中文（自动生成）', subtitle_url: '//aisubtitle.hdslb.com/bfs/subtitle/ai.json' };
+  const manual = { lan: 'zh-CN', lan_doc: '中文', subtitle_url: '//aisubtitle.hdslb.com/bfs/subtitle/manual.json' };
+  assert.equal(selectMusicSubtitle([ai, manual]), manual);
+  assert.equal(selectMusicSubtitle([ai]), ai);
+  assert.equal(selectMusicSubtitle([{ ...manual, lan_doc: '中文（自动生成）' }])?.lan, 'zh-CN');
+  assert.equal(selectMusicSubtitle([{ lan: 'en-US', subtitle_url: manual.subtitle_url }]), null);
+  assert.equal(selectMusicSubtitle([{ ...manual, subtitle_url: 'https://evil.example/subtitle.json' }]), null);
+  const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'musicPlayer.js'), 'utf8');
+  assert.match(source, /for \(const endpoint of \['wbi\/v2', 'v2'\]\)/);
+  assert.match(source, /credentials: 'include'/);
+});
+
+test('lyric window holds its line through short subtitle gaps', () => {
+  const rows = [
+    { from: 1, to: 2, content: '第一句' },
+    { from: 3, to: 4, content: '第二句' },
+    { from: 5, to: 6, content: '第三句' }
+  ];
+  assert.equal(captionWindow(rows, 2.5)?.current, '第一句');
+  assert.deepEqual(captionWindow(rows, 3), {
+    index: 1, previous: '第一句', current: '第二句', next: '第三句', future: ''
+  });
+  assert.equal(captionWindow(rows, 0), null);
+  assert.equal(captionWindow([{ from: 1, to: 2, content: '第一句' }, { from: 10, to: 11, content: '第二句' }], 5), null);
+  assert.equal(captionWindow(rows, 8), null);
+});
+
+test('timed lyric scrolls a fixed-height track without shifting the timeline', () => {
+  const root = path.join(__dirname, '..', '..', 'src', 'electron', 'renderer');
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
+  assert.match(html, /musicPartsButton[\s\S]*?id="musicLyricTrack"[\s\S]*?id="musicLyricPrevious"[\s\S]*?id="musicNowLyricText"[\s\S]*?id="musicLyricNext"[\s\S]*?id="musicLyricFuture"[\s\S]*?id="musicSeek"/);
+  assert.match(app, /musicNowLyric\.classList\.toggle\('hidden', !track \|\| !value\.hasCaptions\)/);
+  assert.match(css, /\.music-now-lyric \{[^}]*height: 54px/);
+  assert.match(css, /\.music-now-lyric\.is-advancing \.music-lyric-track \{[^}]*translateY\(-18px\)[^}]*transition: transform 380ms/);
+  assert.match(app, /setTimeout\(finishMusicLyricTransition, 400\)/);
+  assert.match(app, /prefers-reduced-motion: reduce/);
+  assert.match(html, /id="musicSeek"[^>]*step="0.01"/);
+  assert.match(app, /musicPendingSeek = pending/);
+  const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'musicPlayer.js'), 'utf8');
+  assert.match(main, /hasCaptions: captions\.length > 0/);
 });
 
 test('footer title and lyric scroll only while music is playing, including short titles', () => {
@@ -293,6 +367,8 @@ test('hidden player prioritizes the actual Bilibili video and reports media erro
   const media = { paused: true, ended: false, currentTime: 1, duration: 120, volume: 0.7, error: { code: 2 } };
   const state = vm.runInNewContext(playerScript('state'), { document: { querySelector: (selector) => selector.includes('.bpx-player-video-wrap video') ? media : null } });
   assert.equal(state.errorCode, 2);
+  const locationState = vm.runInNewContext(playerScript('state'), { document: { querySelector: () => media }, location: { pathname: '/video/BV1Qp4y1R7p2' } });
+  assert.equal(locationState.videoBvid, 'BV1Qp4y1R7p2');
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'musicPlayer.js'), 'utf8');
   assert.match(source, /媒体网络错误/);
   assert.doesNotMatch(source, /正在尝试播放/);
@@ -329,6 +405,17 @@ test("music search focuses inline inputs without opening a native dialog", () =>
   assert.doesNotMatch(app + main + preload, /WindowsMusicInput|music:input|musicNativeInput/);
 });
 
+test('music header uses lowercase bilibili and four larger playback icons', () => {
+  const root = path.join(__dirname, '..', '..', 'src', 'electron');
+  const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'renderer', 'styles.css'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'musicPlayer.js'), 'utf8');
+  assert.match(html, /id="musicSourceLabel">bilibili · 收藏夹/);
+  assert.match(source, /label: 'bilibili'/);
+  assert.match(css, /\.music-playback-controls button svg \{ width: 22px; height: 22px/);
+  assert.match(css, /\.music-playback-controls \.music-play-button svg \{ width: 24px; height: 24px/);
+});
+
 test('play and pause use consistent SVG icons instead of font glyphs', () => {
   const root = path.join(__dirname, '..', '..', 'src', 'electron', 'renderer');
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
@@ -338,4 +425,14 @@ test('play and pause use consistent SVG icons instead of font glyphs', () => {
   assert.match(html, /class="music-icon-pause hidden"/);
   assert.match(app, /music-icon-play'\)\.classList\.toggle\('hidden', playing\)/);
   assert.match(css, /\.music-playback-controls \.music-play-button svg \{/);
+  assert.match(css, /\.music-playback-controls button \{[^}]*padding: 0/);
+  assert.doesNotMatch(css, /\.music-icon-play \{[^}]*translateX/);
+});
+
+test('opening favorites scrolls to the current track without stealing later manual scrolls', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'electron', 'renderer', 'app.js'), 'utf8');
+  assert.match(app, /function showMusicQueue\(open\) \{[\s\S]*?musicQueueNeedsCurrentScroll = open/);
+  assert.match(app, /list\.scrollTop \+= current\.getBoundingClientRect\(\)\.top - list\.getBoundingClientRect\(\)\.top/);
+  assert.match(app, /musicPlaylist\[index\]\?\.id \|\| displayedMusicId/);
+  assert.match(app, /if \(musicQueueOpen && musicQueueNeedsCurrentScroll && scrollMusicQueueToCurrent\(\)\)/);
 });

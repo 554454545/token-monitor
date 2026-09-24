@@ -12,7 +12,7 @@
     <main class="shell">
       <header class="titlebar">
         <div>
-          <div class="app-title"><button id="musicBackButton" class="music-back-button" type="button" title="返回 Token" aria-label="返回 Token 主界面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7M7 12h13"/></svg></button><span class="app-title-text">Token Monitor</span><span class="app-title-mark" aria-hidden="true">Σ</span><span id="liveDot" class="live-dot" title="Stream offline"></span><span id="tokenRateReveal" class="token-rate-reveal" aria-hidden="true"></span><span class="app-title-measure" aria-hidden="true">Token Monitor</span></div>
+          <div class="app-title"><span class="app-title-text">Token Monitor</span><span class="app-title-mark" aria-hidden="true">Σ</span><span id="liveDot" class="live-dot" title="Stream offline"></span><span id="tokenRateReveal" class="token-rate-reveal" aria-hidden="true"></span><span class="app-title-measure" aria-hidden="true">Token Monitor</span></div>
           <div id="status" class="status">Starting</div>
         </div>
         <div class="title-controls">
@@ -1820,8 +1820,8 @@
       <div id="sessionPagerHost" class="session-pager-host hidden"></div>
       <section id="musicPanel" class="music-panel hidden" aria-label="音乐">
         <div class="music-topline">
-          <span class="music-source-dot" aria-hidden="true">♫</span>
-          <div class="music-heading"><strong>我的音乐</strong><span id="musicSourceLabel">BILIBILI · 收藏夹</span></div>
+          <button id="musicBackButton" class="music-source-dot music-back-button" type="button" title="返回 Token" aria-label="返回 Token 主界面"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7M7 12h13"/></svg></button>
+          <div class="music-heading"><strong>我的音乐</strong><span id="musicSourceLabel">bilibili · 收藏夹</span></div>
           <button id="musicSearchButton" class="music-list-button" type="button" aria-label="搜索 B 站歌曲" title="搜索 B 站歌曲"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg></button>
           <button id="musicQueueButton" class="music-list-button" type="button" aria-label="打开播放列表">☰ <span>列表</span></button>
         </div>
@@ -1829,7 +1829,8 @@
           <div class="music-cover"><img id="musicCover" alt="" /><span class="music-cover-placeholder" aria-hidden="true">♫</span></div>
           <div class="music-track-copy"><strong id="musicTitle">选一首喜欢的歌</strong><span id="musicArtist">你的 B 站收藏夹已准备好</span></div>
           <button id="musicPartsButton" class="music-parts-button hidden" type="button" aria-label="选择分 P"><span id="musicCurrentPart"></span><span aria-hidden="true">›</span></button>
-          <div class="music-timeline"><input id="musicSeek" type="range" min="0" max="100" value="0" aria-label="播放进度" /><div><span id="musicElapsed">0:00</span><span id="musicDuration">0:00</span></div></div>
+          <div id="musicNowLyric" class="music-now-lyric hidden" aria-live="off"><div id="musicLyricTrack" class="music-lyric-track"><span id="musicLyricPrevious" class="music-lyric-adjacent"></span><span id="musicNowLyricText" class="music-lyric-current"></span><span id="musicLyricNext" class="music-lyric-adjacent"></span><span id="musicLyricFuture" class="music-lyric-adjacent"></span></div></div>
+          <div class="music-timeline"><input id="musicSeek" type="range" min="0" max="100" step="0.01" value="0" aria-label="播放进度" /><div><span id="musicElapsed">0:00</span><span id="musicDuration">0:00</span></div></div>
           <div class="music-playback-controls">
             <button type="button" data-music-action="previous" aria-label="上一首" title="上一首"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M18 5 7 12l11 7V5Z"/></svg></button>
             <button id="musicToggle" class="music-play-button" type="button" data-music-action="toggle" aria-label="播放" title="播放"><svg class="music-icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.7c0-.8.9-1.2 1.5-.8l8.3 5.3a.95.95 0 0 1 0 1.6l-8.3 5.3c-.6.4-1.5 0-1.5-.8Z"/></svg><svg class="music-icon-pause hidden" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="6" width="3.4" height="12" rx="1.2"/><rect x="13.6" y="6" width="3.4" height="12" rx="1.2"/></svg></button>

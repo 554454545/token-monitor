@@ -12,7 +12,7 @@ function favoritesMediaId() {
 }
 const PAGE_SIZE = 40;
 // UI consumes this source-neutral descriptor and normalized track ids; only this adapter knows BVIDs.
-const MUSIC_SOURCE = Object.freeze({ id: 'bilibili', label: 'BILIBILI', collection: '收藏夹' });
+const MUSIC_SOURCE = Object.freeze({ id: 'bilibili', label: 'bilibili', collection: '收藏夹' });
 let hostWindow = null;
 let musicPage = null;
 let playlist = [];
@@ -22,6 +22,8 @@ let searchRevision = { all: 0, favorites: 0 };
 let searchQueries = { all: '', favorites: '' };
 let restorePaused = false;
 let selectionRevision = 0;
+let playbackRevision = 0;
+let playbackReadPending = false;
 let playlistPage = 0;
 let hasMore = true;
 let currentIndex = -1;
@@ -30,6 +32,7 @@ let playback = { paused: true, currentTime: 0, duration: 0 };
 let ticker = null;
 let navigationId = 0;
 let handledEnd = false;
+let ignorePlaybackRolloverUntil = 0;
 let qualityApplied = false;
 let autoplayPending = false;
 let loadingPage = false;
@@ -84,41 +87,81 @@ function subtitleUrl(value) {
   } catch (_) { return ''; }
 }
 
+function videoBvidFromUrl(value) {
+  try { return new URL(value).pathname.match(/^\/video\/(BV[0-9A-Za-z]{10})(?:\/|$)/)?.[1] || ''; }
+  catch (_) { return ''; }
+}
+
+function shouldAdvanceFromPlayback(previous, current, expectedBvid) {
+  if (current.videoBvid && current.videoBvid !== expectedBvid) return true;
+  return Date.now() >= ignorePlaybackRolloverUntil && !current.paused && previous.duration >= 20 &&
+    previous.currentTime >= previous.duration - 8 && current.currentTime < 6 &&
+    current.currentTime + 8 < previous.currentTime;
+}
+
 function captionAt(rows, seconds) {
   const time = Number(seconds) || 0;
   return rows.find((row) => row.from <= time && time < row.to)?.content || '';
 }
 
+function captionWindow(rows, seconds) {
+  const time = Number(seconds) || 0;
+  const index = rows.findLastIndex((row) => row.from <= time);
+  if (index < 0 || time >= rows[index].to + 2) return null;
+  return { index, previous: rows[index - 1]?.content || '', current: rows[index].content,
+    next: rows[index + 1]?.content || '', future: rows[index + 2]?.content || '' };
+}
+
+function fetchMusicSubtitle(url) {
+  const options = { headers: { Referer: 'https://www.bilibili.com/', 'User-Agent': BROWSER_USER_AGENT }, signal: AbortSignal.timeout(10000) };
+  const browserSession = musicPage?.webContents?.session;
+  return browserSession ? browserSession.fetch(url, { ...options, credentials: 'include' }) : fetch(url, options);
+}
+
+function selectMusicSubtitle(subtitles) {
+  if (!Array.isArray(subtitles)) return null;
+  const available = subtitles.filter((entry) => subtitleUrl(entry?.subtitle_url));
+  return available.find((entry) => /^zh(?:[-_]|$)/i.test(entry.lan || '') && !/自动|ai/i.test(entry.lan_doc || '')) ||
+    available.find((entry) => /^ai[-_]zh(?:[-_]|$)/i.test(entry.lan || '')) ||
+    available.find((entry) => /^zh(?:[-_]|$)/i.test(entry.lan || '')) || null;
+}
+
 async function loadCaptions(index) {
   const request = ++captionRequest;
   captions = [];
+  emitState();
   const bvid = activeQueue[currentIndex]?.bvid;
   const cid = parts[index]?.cid;
-  if (!bvid || !Number.isSafeInteger(cid)) { emitState(); return; }
-  try {
-    const response = await fetch(`https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(bvid)}&cid=${cid}`, { signal: AbortSignal.timeout(10000) });
-    if (!response.ok) return;
-    const body = await response.json();
-    const subtitles = body.code === 0 ? body.data?.subtitle?.subtitles : null;
-    const selected = Array.isArray(subtitles) ? subtitles.find((entry) => /^zh/.test(entry.lan || '')) || subtitles[0] : null;
-    const url = subtitleUrl(selected?.subtitle_url);
-    if (!url) return;
-    const captionsResponse = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!captionsResponse.ok) return;
-    const document = await captionsResponse.json();
-    if (request !== captionRequest) return;
-    captions = Array.isArray(document.body) ? document.body.slice(0, 10000).flatMap((row) => {
-      const from = Number(row.from);
-      const to = Number(row.to);
-      const content = String(row.content || '').trim();
-      return Number.isFinite(from) && Number.isFinite(to) && to > from && content ? [{ from, to, content }] : [];
-    }) : [];
-    emitState();
-  } catch (_) { /* Video playback must not depend on captions. */ }
+  if (!bvid || !Number.isSafeInteger(cid)) return;
+  for (const endpoint of ['wbi/v2', 'v2']) {
+    try {
+      const response = await fetchMusicSubtitle(`https://api.bilibili.com/x/player/${endpoint}?bvid=${encodeURIComponent(bvid)}&cid=${cid}`);
+      if (!response.ok) continue;
+      const body = await response.json();
+      if (request !== captionRequest) return;
+      const selected = selectMusicSubtitle(body.code === 0 ? body.data?.subtitle?.subtitles : null);
+      const url = subtitleUrl(selected?.subtitle_url);
+      if (!url) continue;
+      const captionsResponse = await fetchMusicSubtitle(url);
+      if (!captionsResponse.ok) continue;
+      const document = await captionsResponse.json();
+      if (request !== captionRequest) return;
+      const rows = Array.isArray(document.body) ? document.body.slice(0, 10000).flatMap((row) => {
+        const from = Number(row.from);
+        const to = Number(row.to);
+        const content = String(row.content || '').trim();
+        return Number.isFinite(from) && Number.isFinite(to) && to > from && content ? [{ from, to, content }] : [];
+      }) : [];
+      if (!rows.length) continue;
+      captions = rows;
+      emitState();
+      return;
+    } catch (_) { /* Try the other Bilibili subtitle endpoint; playback is independent. */ }
+  }
 }
 
 function playerScript(action, value) {
-  if (action === 'state') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); return m ? { paused: m.paused, ended: m.ended, currentTime: m.currentTime || 0, duration: Number.isFinite(m.duration) ? m.duration : 0, volume: m.volume, errorCode: m.error?.code || 0 } : { paused: true, ended: false, currentTime: 0, duration: 0, errorCode: 0 }; })()';
+  if (action === 'state') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); return m ? { paused: m.paused, ended: m.ended, currentTime: m.currentTime || 0, duration: Number.isFinite(m.duration) ? m.duration : 0, volume: m.volume, errorCode: m.error?.code || 0, videoBvid: globalThis.location?.pathname?.match(new RegExp("/video/(BV[0-9A-Za-z]{10})"))?.[1] || "" } : { paused: true, ended: false, currentTime: 0, duration: 0, errorCode: 0 }; })()';
   if (action === 'volume') return '(() => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); if (!m) return false; m.volume = ' + Math.max(0, Math.min(1, Number(value) || 0)) + '; return true; })()';
   if (action === 'toggle' || action === 'play') {
     return '(async () => { const m = document.querySelector(".bpx-player-video-wrap video, video, audio"); if (!m) return { ok: false, retryable: true, message: "播放器还在加载" }; if (' + (action === 'play' ? 'true' : 'm.paused') + ') { try { await m.play(); return { ok: !m.paused, message: m.paused ? "播放器未开始播放" : "正在播放" }; } catch (error) { return { ok: false, retryable: error?.name === "AbortError", message: "播放失败：" + (error?.message || error?.name || "未知错误") }; } } m.pause(); return { ok: true, message: "已暂停" }; })()';
@@ -134,7 +177,7 @@ function emitState() {
   if (!hostWindow || hostWindow.isDestroyed()) return;
   hostWindow.webContents.send('music:state', {
     track: activeQueue[currentIndex] || null, index: currentIndex, count: playlist.length,
-    source: MUSIC_SOURCE, hasMore, status, qualityApplied, parts, partIndex, volume, ...playback, lyric: captionAt(captions, playback.currentTime)
+    source: MUSIC_SOURCE, hasMore, status, qualityApplied, parts, partIndex, volume, ...playback, lyric: captionAt(captions, playback.currentTime), lyricWindow: captionWindow(captions, playback.currentTime), hasCaptions: captions.length > 0
   });
 }
 
@@ -260,9 +303,17 @@ async function startPlaybackWhenReady(page, id) {
 }
 
 async function readPlayback() {
-  if (!musicPage || musicPage.webContents.isDestroyed() || currentIndex < 0 || loadingPage) return;
+  if (playbackReadPending || !musicPage || musicPage.webContents.isDestroyed() || currentIndex < 0 || loadingPage) return;
+  playbackReadPending = true;
+  const revision = selectionRevision;
+  const commandRevision = playbackRevision;
   try {
     const result = await musicPage.webContents.executeJavaScript(playerScript('state'), true);
+    if (revision !== selectionRevision || commandRevision !== playbackRevision || loadingPage) return;
+    if (!handledEnd && (result.ended || shouldAdvanceFromPlayback(playback, result, activeQueue[currentIndex]?.bvid))) {
+      void finishCurrentPlayback();
+      return;
+    }
     if (resetPlaybackPosition && result.duration > 0 && (restorePaused || !autoplayPending)) {
       const reset = await musicPage.webContents.executeJavaScript(playerScript('restart'), true);
       if (reset) { resetPlaybackPosition = false; result.currentTime = 0; }
@@ -275,13 +326,14 @@ async function readPlayback() {
       await musicPage.webContents.executeJavaScript(playerScript('pause'), true);
       return;
     }
+    if (revision !== selectionRevision || commandRevision !== playbackRevision || loadingPage) return;
     playback = result;
     if (result.errorCode) {
       const reason = { 1: '播放被中断', 2: '媒体网络错误', 3: '媒体解码失败', 4: '媒体格式不支持' }[result.errorCode] || '媒体错误';
       if (status !== '播放失败：' + reason) setStatus('播放失败：' + reason);
     } else emitState();
-    if (result.ended && !handledEnd) { handledEnd = true; void advancePartOrTrack(); }
   } catch (_) { /* Navigation can replace the page during a poll. */ }
+  finally { playbackReadPending = false; }
 }
 
 function attachMusicPlayerWindow(window) {
@@ -312,7 +364,18 @@ async function openMusicPlayer(window) {
       if (ticker) clearInterval(ticker);
       ticker = null;
     });
-    view.webContents.on('will-navigate', (event, url) => { if (!allowedUrl(url)) event.preventDefault(); });
+    view.webContents.on('will-navigate', (event, url) => {
+      if (!allowedUrl(url)) { event.preventDefault(); return; }
+      const nextBvid = videoBvidFromUrl(url);
+      if (!loadingPage && nextBvid && nextBvid !== activeQueue[currentIndex]?.bvid) {
+        event.preventDefault();
+        void finishCurrentPlayback();
+      }
+    });
+    view.webContents.on('did-navigate-in-page', (_event, url) => {
+      const nextBvid = videoBvidFromUrl(url);
+      if (!loadingPage && nextBvid && nextBvid !== activeQueue[currentIndex]?.bvid) void finishCurrentPlayback();
+    });
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     view.webContents.on('did-finish-load', () => {
       const id = ++navigationId;
@@ -329,12 +392,12 @@ async function openMusicPlayer(window) {
     view.webContents.on('media-started-playing', () => {
       if (restorePaused) { void view.webContents.executeJavaScript(playerScript('pause'), true).catch(() => {}); return; }
       if (loadingPage) return;
-      handledEnd = false; setStatus('正在播放');
+      setStatus('正在播放');
     });
     view.webContents.on('media-paused', () => { if (!loadingPage && !status.startsWith('播放失败：')) setStatus('已暂停'); });
     attachMusicPlayerWindow(window);
     view.setVisible(false);
-    ticker = setInterval(() => { void readPlayback(); }, 1200);
+    ticker = setInterval(() => { void readPlayback(); }, 400);
     void (async () => {
       try {
         if (savedTrack) await playIndex(0, [savedTrack], false);
@@ -415,6 +478,19 @@ async function playPart(index) {
   } finally { if (revision === selectionRevision) loadingPage = false; }
 }
 
+async function finishCurrentPlayback() {
+  if (handledEnd || loadingPage) return;
+  handledEnd = true;
+  try {
+    if (await advancePartOrTrack()) return;
+    if (musicPage && !musicPage.webContents.isDestroyed()) {
+      await musicPage.webContents.executeJavaScript(playerScript('pause'), true);
+      playback.paused = true;
+    }
+    setStatus('已播放完当前列表');
+  } catch (error) { setStatus('切换下一首失败：' + error.message); }
+}
+
 async function advancePartOrTrack() {
   if (partIndex + 1 < parts.length) return playPart(partIndex + 1);
   return advance(1);
@@ -445,6 +521,8 @@ async function musicPlayerCommand(event, action, value) {
     }
     if (action === 'next' || action === 'previous') return advance(action === 'next' ? 1 : -1);
     if (action === 'seek') {
+      playbackRevision += 1;
+      ignorePlaybackRolloverUntil = Date.now() + 3000;
       resetPlaybackPosition = false;
       const applied = await page.executeJavaScript(playerScript('seek', value), true);
       if (applied) { playback.currentTime = Math.max(0, Math.min(playback.duration || 0, Number(value) || 0)); emitState(); }
@@ -472,6 +550,6 @@ async function musicPlayerCommand(event, action, value) {
 }
 
 module.exports = {
-  readSavedTrack, allowedUrl, coverUrl, subtitleUrl, captionAt, loadPlaylist, searchMusic, playerScript, attachMusicPlayerWindow,
+  readSavedTrack, videoBvidFromUrl, shouldAdvanceFromPlayback, allowedUrl, coverUrl, subtitleUrl, selectMusicSubtitle, captionAt, captionWindow, loadPlaylist, searchMusic, playerScript, attachMusicPlayerWindow,
   musicPlayerCommand, openMusicPlayer
 };
