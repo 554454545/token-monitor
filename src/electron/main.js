@@ -218,6 +218,7 @@ const {
   pruneArchivedClientUsage
 } = require('../shared/clientUsageArchive');
 const {
+  applyRetainedCodexTodayFloor,
   applySessionUsageArchive,
   normalizeSessionUsageArchive,
   sessionUsageArchiveDate
@@ -227,7 +228,7 @@ const {
   readSessionUsageArchiveSnapshot,
   sessionUsageArchiveDatabasePath
 } = require('../shared/sessionUsageArchiveStore');
-const { clearDailyHistoryArchive } = require('../shared/dailyHistoryArchive');
+const { clearDailyHistoryArchive, readDailyHistoryArchive } = require('../shared/dailyHistoryArchive');
 const { aggregateDevices, aggregateHistory, applyProjectRollups } = require('../shared/usage');
 const {
   HUB_RESPONSE_HEADER,
@@ -2874,6 +2875,13 @@ function summaryWithArchivesApplied(summary, sessionArchive, now) {
         canonicalSummary: true,
         mutate: true
       });
+  if (settings?.sessionUsageArchiveEnabled !== false) {
+    try {
+      applyRetainedCodexTodayFloor(visibleSummary, readDailyHistoryArchive(), { now });
+    } catch (error) {
+      console.log(`[session-archive] daily floor read failed: ${error.message}`);
+    }
+  }
   return settings?.projectsEnabled === false ? visibleSummary : applyProjectRollups(visibleSummary);
 }
 

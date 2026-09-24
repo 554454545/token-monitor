@@ -11,6 +11,7 @@ try {
 } catch (_) {}
 
 const {
+  applyRetainedCodexTodayFloor,
   applySessionUsageArchive,
   captureSessionUsageArchive,
   clearSessionUsageArchive,
@@ -352,6 +353,82 @@ test('canonical capture updates only changed rows in place', () => {
   assert.equal(result.archive, archive);
   assert.deepEqual([...result.changedKeys], ['opencode:o1']);
   assert.equal(result.archive.sessions['opencode:o1'].periods.allTime.totalTokens, 101);
+});
+
+test('a smaller same-day Codex scan retains the highest session without double counting', () => {
+  const earlier = liveSummary();
+  const archive = captureSessionUsageArchive({}, earlier, new Date('2026-07-09T08:15:00.000Z'));
+  const later = liveSummary();
+  later.today.sessions['codex:c1'].totalTokens = 20;
+  later.today.sessions['codex:c1'].models = { 'gpt-5': 20 };
+  later.today.totalTokens = 120;
+  later.today.clients.codex = 20;
+  later.today.models['gpt-5'] = 20;
+  later.today.clientModels.codex['gpt-5'] = 20;
+  updateSessionUsageArchive(archive, later, new Date('2026-07-09T08:30:00.000Z'));
+  assert.equal(archive.sessions['codex:c1'].periods.today.totalTokens, 50);
+
+  const visible = applySessionUsageArchive(later, archive, { now: new Date('2026-07-09T08:30:00.000Z') });
+  assert.equal(visible.today.totalTokens, 150);
+  assert.equal(visible.today.clients.codex, 50);
+  assert.equal(visible.today.models['gpt-5'], 50);
+  assert.equal(visible.today.sessions['codex:c1'].totalTokens, 50);
+  assert.equal(visible.today.sessions['codex:c1'].archived, true);
+});
+
+test('Codex sessions seen before and after an account switch share one total', () => {
+  const first = {
+    today: normalizePeriod({
+      sessions: { 'codex:first': { client: 'codex', sessionId: 'first', totalTokens: 100, models: { 'gpt-5': 100 } } }
+    })
+  };
+  const second = {
+    today: normalizePeriod({
+      sessions: { 'codex:second': { client: 'codex', sessionId: 'second', totalTokens: 70, models: { 'gpt-5': 70 } } }
+    })
+  };
+  // The collector supplies aggregate fields as well as session rows.
+  first.today.totalTokens = 100;
+  first.today.clients.codex = 100;
+  first.today.models['gpt-5'] = 100;
+  first.today.clientModels.codex = { 'gpt-5': 100 };
+  second.today.totalTokens = 70;
+  second.today.clients.codex = 70;
+  second.today.models['gpt-5'] = 70;
+  second.today.clientModels.codex = { 'gpt-5': 70 };
+
+  const archive = captureSessionUsageArchive({}, first, new Date('2026-07-09T08:15:00.000Z'));
+  updateSessionUsageArchive(archive, second, new Date('2026-07-09T08:30:00.000Z'));
+  const visible = applySessionUsageArchive(second, archive, { now: new Date('2026-07-09T08:30:00.000Z') });
+  assert.equal(visible.today.totalTokens, 170);
+  assert.equal(visible.today.clients.codex, 170);
+  assert.equal(Object.keys(visible.today.sessions).length, 2);
+});
+
+test('previously displayed Codex usage restores only the missing total', () => {
+  const summary = liveSummary();
+  const archive = {
+    liveDays: {
+      '2026-07-09': {
+        observations: {
+          old: { client: 'codex', tokens: 120 },
+          unrelated: { client: 'opencode', tokens: 400 }
+        }
+      }
+    }
+  };
+  const now = new Date('2026-07-09T08:30:00.000Z');
+  applyRetainedCodexTodayFloor(summary, archive, { now });
+  assert.equal(summary.today.totalTokens, 220);
+  assert.equal(summary.today.clients.codex, 120);
+  assert.equal(summary.today.models['previously-observed'], 70);
+  assert.equal(summary.month.totalTokens, 220);
+  assert.equal(summary.allTime.totalTokens, 220);
+  assert.equal(summary.today.sessions['codex:retained-2026-07-09'].archived, true);
+  applyRetainedCodexTodayFloor(summary, archive, { now });
+  assert.equal(summary.today.totalTokens, 220);
+  applyRetainedCodexTodayFloor(summary, archive, { now: new Date('2026-07-10T08:30:00.000Z') });
+  assert.equal(summary.today.totalTokens, 220);
 });
 
 test('canonical capture safely prunes malformed entries without period windows', () => {

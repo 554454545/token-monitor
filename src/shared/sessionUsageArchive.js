@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
-const { PERIODS, normalizePeriod } = require('./usage');
+const { PERIODS, applyPeriodDelta, emptyPeriod, normalizePeriod } = require('./usage');
 const {
   cloneJson,
   hasSummaryPeriod,
@@ -179,6 +179,10 @@ function updateSessionUsageArchive(existingArchive, deviceRecord, capturedAt = n
         : periodName === 'month'
           ? window.month === month
           : true;
+      // A changed account or a temporarily incomplete transcript can make the
+      // same session scan smaller. Its already-observed usage is still spent.
+      // Keep one highest snapshot per session/window, never sum both copies.
+      if (sameWindow && numberValue(entry.periods[periodName]?.totalTokens) > numberValue(nextSession.totalTokens)) continue;
       if (sameJson(entry.periods[periodName], nextSession) && sameWindow) continue;
       entry.client = session.client;
       entry.sessionId = session.sessionId;
@@ -314,6 +318,15 @@ function addArchivedSession(period, session, archiveKey = null) {
   addSessionBreakdown(period, archived);
 }
 
+function restoreLargerArchivedSession(period, liveSession, archivedSession, archiveKey) {
+  const liveOnly = emptyPeriod();
+  const archivedOnly = emptyPeriod();
+  addArchivedSession(liveOnly, liveSession, archiveKey);
+  addArchivedSession(archivedOnly, archivedSession, archiveKey);
+  Object.assign(period, applyPeriodDelta(period, archivedOnly, liveOnly));
+  period.sessions[archiveKey] = { ...cloneJson(archivedSession), archived: true };
+}
+
 function shouldApplyPeriod(periodName, entry, now) {
   const window = entry?.periodWindows?.[periodName] || {};
   if (periodName === 'today') return (window.day || entry.day) === localDay(now);
@@ -356,7 +369,13 @@ function applySessionUsageArchive(summary, archive, options = {}) {
       // deviceState would otherwise carry forward.
       if (!hasSummaryPeriod(next, periodName)) continue;
       const period = targetFor(periodName);
-      if (period.sessions[archiveKey]) continue;
+      const liveSession = period.sessions[archiveKey];
+      if (liveSession) {
+        if (numberValue(session.totalTokens) > numberValue(liveSession.totalTokens)) {
+          restoreLargerArchivedSession(period, liveSession, session, archiveKey);
+        }
+        continue;
+      }
       if (entry.supersededBy) {
         supersededRows.push([period, archiveKey, session, entry.supersededBy]);
         continue;
@@ -373,6 +392,38 @@ function applySessionUsageArchive(summary, archive, options = {}) {
   }
 
   return next;
+}
+
+// Session snapshots are the precise source. A prior live headline can also
+// survive after an older archive writer already replaced a session with a
+// smaller scan. Restore only the missing Codex total, never the whole earlier
+// snapshot, so current sessions are not counted twice. The remainder is
+// explicitly unattributed instead of being assigned to an account or model.
+function applyRetainedCodexTodayFloor(summary, dailyArchive, options = {}) {
+  if (!hasSummaryPeriod(summary, 'today')) return summary;
+  const now = toDate(options.now);
+  const day = localDay(now);
+  const observations = Object.values(dailyArchive?.liveDays?.[day]?.observations || {});
+  const retained = observations.reduce((tokens, observation) => (
+    observation?.client === 'codex' ? tokens + Math.max(0, numberValue(observation.tokens)) : tokens
+  ), 0);
+  if (!retained) return summary;
+  const today = targetPeriod(summary, 'today');
+  const missing = Math.max(0, Math.round(retained - numberValue(today.clients.codex)));
+  if (!missing) return summary;
+  const session = {
+    client: 'codex',
+    sessionId: `retained-${day}`,
+    title: 'Previously observed Codex usage',
+    totalTokens: missing,
+    models: { 'previously-observed': missing }
+  };
+  for (const periodName of PERIODS) {
+    if (!hasSummaryPeriod(summary, periodName)) continue;
+    const period = periodName === 'today' ? today : targetPeriod(summary, periodName);
+    addArchivedSession(period, session);
+  }
+  return summary;
 }
 
 function sessionUsageArchivePath(options = {}) {
@@ -401,6 +452,7 @@ function clearSessionUsageArchive(options = {}) {
 }
 
 module.exports = {
+  applyRetainedCodexTodayFloor,
   applySessionUsageArchive,
   captureSessionUsageArchive,
   clearSessionUsageArchive,
